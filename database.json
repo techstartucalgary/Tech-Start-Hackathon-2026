@@ -1,0 +1,11 @@
+{
+  "dev": {
+    "driver": "sqlite3",
+    "filename": "./backend/database.sqlite"
+  },
+  "test": {
+    "driver": "sqlite3",
+    "filename": "./backend/database.test.sqlite"
+  },
+  "sql-file": true
+}
