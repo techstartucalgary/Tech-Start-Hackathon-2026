@@ -18,6 +18,8 @@ For reference, UI and logic can be found prototyped here: https://www.figma.com/
 
 The JIRA board that we will be using to keep track of work items can be found here: https://techstartxcursor2026.atlassian.net/jira/software/projects/SCRUM/boards/1?filter=&groupBy=none
 
+If you're ever assigned to write user stories, this will be the guide that we're using: https://www.atlassian.com/agile/project-management/user-stories.
+
 ## Project Plan
 The project will be done through Agile sprints. 
 - **Agile Sprints**: are essentially short, fixed periods of time where the team plans, develops, tests, and reviews a specific set of features or tasks. 
@@ -26,12 +28,13 @@ The project will be done through Agile sprints.
   - This is a really common practice in corporate!
 
 The project will follow the following sprint cycle:
+```
                     ┌─────────────────────┐
-              ┌────►│  Product Backlog    │ : lower priority; stuff to be done after done sprint work.
+              ┌────►│  Product Backlog    │ : lower priority
               │     └─────────┬───────────┘
               │               ↓
               │     ┌─────────────────────┐
-              │     │  Sprint Planning    │ : probably done by Shivanshi but that might change.
+              │     │  Sprint Planning    │ 
               │     └─────────┬───────────┘
               │               ↓
               │     ┌─────────────────────┐
@@ -39,17 +42,17 @@ The project will follow the following sprint cycle:
               │     └─────────┬───────────┘
               │               ↓
               │     ┌─────────────────────┐
-              │     │ Testing & Review    │ : PR code review done by web dev team.
+              │     │ Testing & Review    │ : PR code review
               │     └─────────┬───────────┘
               │               ↓
               │     ┌─────────────────────┐
-              │     │   Sprint Review     │ : making sure that all the features in the sprint work.
+              │     │   Sprint Review     │ 
               │     └─────────┬───────────┘
               │               ↓
               │     ┌─────────────────────┐
-              └─────┤ Sprint Retrospective│ : reflection on what worked well/what could be worked on.
+              └─────┤ Sprint Retrospective│ : reflection 
                     └─────────────────────┘
-
+```
 ## Architecture
 
 ### High-level flow
