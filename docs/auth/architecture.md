@@ -1,11 +1,11 @@
-# Auth Spec: Authentication & Authorization
+# Auth Architecture: Authentication & Authorization
 
 *The authentication and authorization architecture for the hackathon app. For the plain-language version, read [overview.md](overview.md).*
 
 | | |
 |---|---|
 | **Status** | Proposed. **Nothing in this file is implemented yet.** Every file, table, endpoint and middleware named here is planned. Check the code before importing anything. |
-| **Version** | 3.0 (see [Changelog](#14-changelog)) |
+| **Version** | 3.1 (see [Changelog](#14-changelog)) |
 | **Authority** | This file is the source of truth for auth. If [overview.md](overview.md) or any other doc disagrees, this file wins. |
 | **Scope** | Covers the acceptance criteria of the *Plan Authentication & Authorization Architecture* ticket. Anything beyond that is listed as a **TODO** in [§12](#12-todos-outside-this-ticket). |
 
@@ -46,6 +46,8 @@ This spec adds authentication and authorization to the architecture in the READM
 │ hackathon_enrollments│
 │ groups               │
 │ group_members        │
+│ group_join_requests  │
+│ user_identities      │
 └──────────────────────┘
 ```
 
@@ -55,7 +57,7 @@ The README predates this design and is intentionally left unchanged. Where they 
 
 | README says | This spec says | Ref |
 |---|---|---|
-| Add "User authentication (e.g., JWT, OAuth)" | **Server-side sessions with an HttpOnly cookie.** JWT is rejected. OAuth can be added later on top of sessions. | D-03, §11 |
+| Add "User authentication (e.g., JWT, OAuth)" | **Server-side sessions with an HttpOnly cookie.** JWT is rejected. Google sign-in (OAuth) is supported and ends in the same kind of session. | D-03, D-22, §5.2 |
 | The backend uses "`cors` with explicit options" | The code currently uses `origin: true`, which must become an allowlist before auth ships. | D-08 |
 | "Authentication / Authorization" sits inside the Express box | Matches: auth is Express middleware. | §7, §9 |
 
@@ -103,7 +105,7 @@ The README predates this design and is intentionally left unchanged. Where they 
 
 | ID | Decision | Status | Why |
 |---|---|---|---|
-| D-01 | Users sign in with **email + password**. | DEFAULT | Fastest to build. The Figma also shows *Continue with Google*, which is open (§13 Q1) and fits on top of sessions (§11). |
+| D-01 | Users sign in with **email + password** or **Google** ("Continue with Google"). Both end in the same kind of session. | DECIDED | Agreed by the team 2026-10-18, matching the Figma. Details in D-22 and §5.2. |
 | D-02 | Passwords are hashed with **bcrypt** (cost 12) and must be **8–72 bytes**. | DECIDED | bcrypt ignores bytes past 72, so longer input is rejected instead of silently truncated. |
 | D-03 | Auth state lives in **server-side sessions** stored in the database. | DECIDED | Signing out and role changes take effect immediately. **Rejected: JWT**, which can't be revoked early and goes stale when roles change. |
 | D-04 | The session token is 32 random bytes. The database stores only **its SHA-256 hash**. | DECIDED | A leaked database doesn't give anyone working sessions. No signing secret is needed. |
@@ -124,6 +126,9 @@ The README predates this design and is intentionally left unchanged. Where they 
 | D-19 | Registering and enrolling in the hackathon are **separate steps**. | DECIDED | Agreed by the team 2026-10-16. |
 | D-20 | **Staff can compete.** Organizers and admins can enroll and be in groups. Their `:any` overrides still apply. | DECIDED | Agreed by the team 2026-10-16. |
 | D-21 | All signed-in users can see every group and its members. | DECIDED | Agreed by the team 2026-10-16. This is why a missing group returns 404 before the membership check. |
+| D-22 | Google sign-in uses the **OAuth 2.0 authorization-code flow with OpenID Connect**, handled entirely by the backend. A Google account is identified by its Google user id (`sub`), never by email alone. | DECIDED | The backend verifies the token itself, so the browser never handles Google tokens. Emails can change; `sub` doesn't. |
+| D-23 | If a Google account's **verified** email matches an existing user, the Google account is **linked** to that user instead of creating a duplicate. Unverified emails are never linked. | DECIDED | Someone who registered with a password can later use "Continue with Google" and land in the same account. Requiring verification stops someone from claiming another person's account through an unverified email. |
+| D-24 | Users get into a group **only by requesting to join**. The group's owner (shown as "Lead" in the UI) approves or declines each request. There's no instant join and no invite link or code in the first build. | DECIDED | Agreed by the team 2026-10-18. Nobody ends up in a group without asking, and owners control who joins. |
 
 ---
 
@@ -137,6 +142,8 @@ The README predates this design and is intentionally left unchanged. Where they 
 | `group` | A team (tables `groups`, `group_members`). UI text may say "team". | `team` in code, API or DB |
 | Group role | `group_members.role`: `owner` or `member`. The UI shows the owner as "Lead". | leader, captain |
 | Session / `sid` | The server's record of a sign-in, and the cookie that points to it | JWT, token table |
+| Join request | A user's request to join a group (table `group_join_requests`): `pending`, `approved`, `declined` or `cancelled` | application, invite |
+| Identity | A linked sign-in provider account (table `user_identities`), e.g. Google | — |
 | Permission | A string like `group:update`, or `group:update:any` for staff overrides | `canEdit`-style booleans |
 | `req.user` | The acting user, set from the session | `req.body.userId` |
 | `req.group` / `req.membership` | The target group, and the acting user's row in it (`null` if not a member) | — |
@@ -154,10 +161,12 @@ These must be true after every request.
 | INV-03 | Only enrolled users can be group members. |
 | INV-04 | Every group has exactly one `owner`. |
 | INV-05 | The acting user always comes from the session. |
-| INV-06 | Passwords and session tokens are never stored, logged or returned in plain text. |
+| INV-06 | Passwords, session tokens and Google tokens are never stored, logged or returned in plain text. |
 | INV-07 | A user's role is only changed by someone holding `user:role:update`, never through registration or profile input. |
 | INV-08 | Every route requires sign-in unless it's on the public list (§8.1). |
 | INV-09 | Every authorization decision is made in the backend. |
+| INV-10 | Nobody becomes a group member without their own request being approved (or by creating the group). |
+| INV-11 | A user has at most one **pending** request per group, and no pending requests at all once they're in a group. |
 
 ---
 
@@ -167,11 +176,13 @@ Only the tables and columns auth depends on. **TODO:** full schema and migration
 
 | Table | Columns auth relies on |
 |---|---|
-| `users` | `id`, `email` (unique, case-insensitive), `password_hash`, `display_name`, `role` (`user` / `organizer` / `admin`, default `user`) |
+| `users` | `id`, `email` (unique, case-insensitive), `password_hash` (**nullable**: Google-only users have none), `display_name`, `role` (`user` / `organizer` / `admin`, default `user`) |
 | `sessions` | `id`, `user_id`, `token_hash` (unique), `expires_at` (sliding), `absolute_expires_at` (fixed) |
+| `user_identities` | `user_id`, `provider` (`google`), `provider_user_id` (Google `sub`). Unique on (`provider`, `provider_user_id`). |
 | `hackathon_enrollments` | `user_id`, `status` (`active` / `withdrawn`) |
 | `groups` | `id`, `name` |
 | `group_members` | `group_id`, `user_id`, `role` (`owner` / `member`). One row per user (INV-02), one owner per group (INV-04). |
+| `group_join_requests` | `id`, `group_id`, `user_id` (requester), `status` (`pending` / `approved` / `declined` / `cancelled`), `decided_by`. At most one pending row per (group, user) (INV-11). |
 
 - Ownership lives **only** in `group_members.role`. Never infer it from who created the group.
 - All tables are created through migrations, never by hand.
@@ -184,8 +195,12 @@ Only the tables and columns auth depends on. **TODO:** full schema and migration
 |---|---|---|
 | `POST /api/auth/register` `{ email, password, displayName }` | Yes | Creates the account with role `user`, then signs in. |
 | `POST /api/auth/login` `{ email, password }` | Yes | Checks the password and creates a new session. |
+| `GET /api/auth/google` | Yes | Starts "Continue with Google": redirects the browser to Google (§5.2). |
+| `GET /api/auth/google/callback` | Yes | Google redirects back here. The backend verifies the result, then signs the user in (§5.2). |
 | `POST /api/auth/logout` | Yes | Deletes the current session and clears the cookie. Always succeeds. |
 | `GET /api/auth/me` | Yes (D-17) | Returns the current user, or `null`. |
+
+### 5.1 Email and password
 
 **Register:**
 
@@ -198,11 +213,46 @@ Only the tables and columns auth depends on. **TODO:** full schema and migration
 
 - Rate-limited (**TODO:** exact limits, §12).
 - Unknown email and wrong password return the **same** error, `401 INVALID_CREDENTIALS`, and take about the same time, so nobody can discover which emails have accounts.
+- Accounts created with Google have no password, so password sign-in fails for them with the same error.
 - Every successful sign-in creates a **new** session. Any session cookie the request already carried is deleted, which prevents session fixation.
 
-**Sign out:**
+### 5.2 Continue with Google (D-22, D-23)
+
+```text
+ Browser                 Backend                              Google
+    │  GET /api/auth/google  │                                    │
+    │ ─────────────────────► │ create random state + PKCE values, │
+    │                        │ store them in a short-lived cookie │
+    │ ◄───────────────────── │ redirect to Google                 │
+    │ ──────────────────────────────────────────────────────────► │ user signs in
+    │ ◄────────────────────────────────────────────────────────── │ redirect with code + state
+    │  GET /api/auth/google/callback?code&state                   │
+    │ ─────────────────────► │ check state matches the cookie     │
+    │                        │ exchange code for tokens ────────► │
+    │                        │ verify the ID token (issuer,       │
+    │                        │ audience, expiry, email_verified)  │
+    │                        │ find or create the user (below)    │
+    │                        │ create a session (same as 5.1)     │
+    │ ◄───────────────────── │ set sid cookie, redirect to app    │
+```
+
+Finding the user, in this order:
+
+1. **A `user_identities` row** with this Google `sub` exists → sign in as that user.
+2. **A user with the same email** exists and Google says the email is **verified** → link the Google account to that user (add a `user_identities` row), then sign in (D-23).
+3. **Otherwise** → create a new user (role `user`, no password, display name from Google), add the identity row, then sign in.
+
+Rules:
+
+- **Verify everything.** The `state` value must match the one in the cookie; otherwise the callback is rejected. This is what stops CSRF on the OAuth flow. PKCE is used for the code exchange, and the ID token is verified on the backend.
+- **Unverified email.** If Google reports the email as unverified, don't link it to an existing account. Sign-in fails with `401 GOOGLE_EMAIL_UNVERIFIED`.
+- **Session only.** Google tokens are used once, during the callback, and are not stored. The user's session afterwards is the same `sid` session as an email + password sign-in.
+- **Config.** The client id, client secret and redirect URL come from environment variables. **TODO:** Google Cloud project setup and choosing a library (§12).
+
+### 5.3 Sign out
 
 - Delete the session row and clear the cookie.
+- Signing out doesn't sign the user out of their Google account; it only ends the session in this app.
 
 **API responses** never include `password_hash`, session rows or token hashes.
 
@@ -234,7 +284,7 @@ HTTP doesn't remember anything between requests, so the `sid` cookie ties them t
 
 | Role | Can |
 |---|---|
-| `user` | Enroll; create or join a group; act in their own group according to their group role. |
+| `user` | Enroll; create a group or request to join one; act in their own group according to their group role. |
 | `organizer` | Everything a `user` can (D-20), plus viewing all enrollments and moderating any group through `:any` permissions. |
 | `admin` | Everything an `organizer` can, plus changing users' roles. |
 
@@ -242,7 +292,7 @@ HTTP doesn't remember anything between requests, so the `sid` cookie ties them t
 
 | Role | Can |
 |---|---|
-| `owner` | Edit the group, manage members, transfer ownership, delete the group, leave. |
+| `owner` | Edit the group, manage members (approve or decline join requests, remove members), transfer ownership, delete the group, leave. |
 | `member` | Leave. |
 
 ### 7.2 Permissions
@@ -258,7 +308,7 @@ Permission names follow `<resource>:<action>`. They come in three kinds:
 | `hackathon:enroll` | global | `user`, `organizer`, `admin` (enroll and withdraw) |
 | `group:view` | global | `user`, `organizer`, `admin` |
 | `group:create` | global | `user`, `organizer`, `admin` |
-| `group:join` | global | `user`, `organizer`, `admin` |
+| `group:request` | global | `user`, `organizer`, `admin` (send and cancel their own join requests) |
 | `group:update` | group-scoped | `owner` |
 | `group:members:manage` | group-scoped | `owner` |
 | `group:transfer` | group-scoped | `owner` |
@@ -277,7 +327,7 @@ Permission names follow `<resource>:<action>`. They come in three kinds:
 2. Group roles may hold only group-scoped permissions.
 3. Every permission must appear in the table above.
 
-`group:members:manage` covers everything the ticket calls "managing group members" (approving people, inviting people, removing members). **TODO:** split it into finer permissions once the group-joining design exists (§12).
+`group:members:manage` covers everything the ticket calls "managing group members": seeing a group's join requests, approving or declining them, and removing members.
 
 ### 7.3 `can()`, the single policy function
 
@@ -312,7 +362,7 @@ function can(user, permission, membership = null) {
 
 ### 8.1 Public routes (the complete list)
 
-`GET /api`, `GET /api/health`, `/swagger-ui`, `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`.
+`GET /api`, `GET /api/health`, `/swagger-ui`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/google`, `GET /api/auth/google/callback`, `POST /api/auth/logout`, `GET /api/auth/me`.
 
 **Everything else requires a signed-in user.** A new public route must be added to this list in the same PR.
 
@@ -324,10 +374,11 @@ function can(user, permission, membership = null) {
 |---|---|---|---|---|---|---|
 | Enroll in the hackathon | `hackathon:enroll` | ✅ | — already enrolled | — already enrolled | ✅ | ✅ |
 | Create a group | `group:create` + enrolled | ✅ if not in a group | ❌ already in one | ❌ already in one | ✅ if enrolled, not in a group | ✅ if enrolled, not in a group |
-| Join a group | `group:join` + enrolled | ✅ if not in a group (**TODO:** how joining works, §12) | ❌ already in one | ❌ already in one | ✅ if enrolled, not in a group | ✅ if enrolled, not in a group |
+| Join a group: **request to join** | `group:request` + enrolled | ✅ if not in a group and no pending request to this group | ❌ already in one | ❌ already in one | ✅ if enrolled, not in a group | ✅ if enrolled, not in a group |
+| Cancel own join request | `group:request` | ✅ own requests only | — | — | ✅ own | ✅ own |
 | Modify a group | `group:update` | ❌ 403 not a member | ❌ 403 | ✅ | ✅ | ✅ |
 | Leave a group | `group:leave` | ❌ 403 not a member | ✅ | ✅ after transferring ownership, or if last member | ❌ 403 not a member | ❌ 403 not a member |
-| Manage group members | `group:members:manage` | ❌ 403 not a member | ❌ 403 | ✅ | ✅ | ✅ |
+| Manage group members: **approve / decline requests**, remove members | `group:members:manage` | ❌ 403 not a member | ❌ 403 | ✅ | ✅ | ✅ |
 | Transfer ownership | `group:transfer` | ❌ 403 not a member | ❌ 403 | ✅ | ✅ | ✅ |
 | Delete a group | `group:delete` | ❌ 403 not a member | ❌ 403 | ✅ | ✅ | ✅ |
 | View groups | `group:view` | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -338,7 +389,12 @@ function can(user, permission, membership = null) {
 
 Authorization answers "may this user try this?". A few rules depend on the current data and are checked by services afterwards. They're listed because they protect the invariants:
 
-- **One group per user (INV-02).** Creating or joining while already in a group fails with `409`.
+- **One group per user (INV-02).** Creating a group or requesting to join while already in one fails with `409`.
+- **Join requests (INV-10, INV-11).**
+  - Only one pending request per group at a time. A second request fails with `409`.
+  - When the owner approves a request, the requester must still be enrolled and not in a group. Otherwise the request is cancelled and approval fails with `409`.
+  - Once someone joins a group, all their other pending requests are cancelled automatically.
+  - Requests can only be approved or declined by the owner of **that** group (or staff), and only cancelled by the person who sent them.
 - **Enrollment (INV-03).** Withdrawing while in a group fails with `409`; leave the group first.
 - **One owner (INV-04).**
   - The owner can't leave while other members remain; they transfer ownership first.
@@ -388,7 +444,9 @@ router.patch('/:groupId',
   groupController.update);
 ```
 
-Actions from **outside** a group (create, join) can't use this flow, because the user isn't a member yet. They use `requirePermission` + `requireEnrollment` instead.
+Approving and declining join requests happen **inside** the group, so they use this flow with `authorizeGroupAction('group:members:manage')`.
+
+Actions from **outside** a group (create a group, send a join request) can't use this flow, because the user isn't a member yet. They use `requirePermission` + `requireEnrollment` instead.
 
 ---
 
@@ -398,11 +456,11 @@ Actions from **outside** a group (create, join) can't use this flow, because the
 
 | Order | Status | Meaning | Example `code` |
 |---|---|---|---|
-| 1 | `401` | Not signed in, session expired, or wrong credentials at login | `AUTH_REQUIRED`, `SESSION_EXPIRED`, `INVALID_CREDENTIALS` |
+| 1 | `401` | Not signed in, session expired, wrong credentials, or a failed Google sign-in | `AUTH_REQUIRED`, `SESSION_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_AUTH_FAILED`, `GOOGLE_EMAIL_UNVERIFIED` |
 | 2 | `404` | The target doesn't exist | `GROUP_NOT_FOUND` |
 | 3 | `403` | Signed in, but not allowed | `NOT_GROUP_MEMBER`, `FORBIDDEN`, `NOT_ENROLLED`, `CSRF_ORIGIN_REJECTED` |
 | 4 | `400` | Invalid input | `VALIDATION_ERROR` |
-| 5 | `409` | Allowed, but blocked by the current state | `ALREADY_IN_GROUP`, `OWNER_MUST_TRANSFER` |
+| 5 | `409` | Allowed, but blocked by the current state | `ALREADY_IN_GROUP`, `REQUEST_ALREADY_PENDING`, `OWNER_MUST_TRANSFER` |
 | — | `429` | Too many attempts | `RATE_LIMITED` |
 | — | `500` | Unexpected error, no details exposed | `INTERNAL_ERROR` |
 
@@ -422,6 +480,7 @@ The 404 can come before the 403 because groups are visible to every signed-in us
 - **Unknown errors** become `500 INTERNAL_ERROR`. The details are logged, never returned.
 - **Logging:** `401` and `403` are logged at `warn` with user id, route and code. Passwords, cookies and tokens are never logged.
 - **Frontend:** a `401` sends the user to the sign-in page, and a `403` shows a "no permission" message.
+- **Google sign-in failures** happen during a browser redirect, not an API call, so the callback redirects to the sign-in page with the error code in the URL (e.g. `/welcome-page?error=GOOGLE_AUTH_FAILED`) instead of returning JSON.
 
 ---
 
@@ -435,7 +494,8 @@ The design grows without rewriting routes:
 | New permission (e.g. `submission:score`) | Add it to §7.2, grant it to roles, and protect the route with `requirePermission` or `authorizeGroupAction`. |
 | New group role (e.g. `co_owner`) | Add it to `group_members.role` and give it a permission list. Revisit INV-04. |
 | Roles editable without a deploy | Move the permission lists into database tables. Only `can()`'s data source changes. |
-| Google sign-in / OAuth | Add a `user_identities` table and make `password_hash` optional. After the provider callback, create a session exactly as in §5, so everything downstream stays the same. |
+| Another sign-in provider (e.g. GitHub, Microsoft) | Add a new `provider` value in `user_identities` and the same two routes as §5.2. Sessions and everything after them stay the same. |
+| Other ways to join (instant join, invite links) | Add the new path and its permission. Every path must still keep INV-10: nobody joins without their own action. |
 
 ---
 
@@ -445,12 +505,13 @@ These came up during design but aren't part of this ticket's acceptance criteria
 
 | TODO | Notes to carry forward |
 |---|---|
-| **How joining a group works** | The Figma shows three group types (Open group / Request to join / Invite only), an invite link/code, and "Invite member". The design should keep consent: nobody ends up in a group without their own action. Invite codes need enough randomness (the mock's `PRAIRIE-5X8` has only three random characters, which is guessable). This will likely split `group:members:manage` into finer permissions. |
+| **Join request details** | The decision is made (D-24). Still to design: whether a request can include a message, whether owners get notified, and whether old requests expire. The Figma's instant join, "Invite only", invite link/code and "Invite member" are **not** in the first build. |
 | **Group capacity** | The Figma shows a 3–6 "Team capacity" picker. |
 | **Full database schema and migrations** | Expand §4 into real tables and migrations. |
 | **Backend conventions** | Async error handling in Express 4; transactions on the single shared SQLite connection; one timestamp format; a validation library; enabling SQLite foreign keys. |
 | **Complete error-code list** | Expand §10.1 as the features are built. |
-| **Rate-limit values** | Exact limits for login, register and any code-based joining. |
+| **Rate-limit values** | Exact limits for login, register and join requests. |
+| **Google setup** | Create the Google Cloud OAuth client, set the redirect URLs for local and production, and pick the OAuth/OIDC library. |
 | **Frontend auth wiring** | The fetch helper, the auth context, connecting the login/register card, and the `/api` rewrite config. |
 | **Implementation tickets** | Break the build into tickets (sessions → permissions → enrollment → groups → frontend → tests). |
 | **Roster deadline** | The Figma shows a "Confirm team roster" deadline, and invite links that expire at it. |
@@ -459,10 +520,12 @@ These came up during design but aren't part of this ticket's acceptance criteria
 
 ## 13. Open questions
 
-| # | Question | Current default |
+There are no open questions right now. Both earlier ones were answered on 2026-10-18:
+
+| # | Question | Decision |
 |---|---|---|
-| Q1 | The Figma shows **Continue with Google**. Is it in the first build? | Email + password only (D-01). Google fits on top later (§11). |
-| Q2 | Which joining options from the Figma are in the first build? | Undecided. Tracked in §12. |
+| Q1 | Is Google sign-in in the first build? | **Yes** (D-01, D-22, D-23). |
+| Q2 | How do people join a group? | **Request to join, approved by the owner** (D-24). |
 
 ---
 
@@ -470,5 +533,6 @@ These came up during design but aren't part of this ticket's acceptance criteria
 
 | Version | Date | Change |
 |---|---|---|
+| 3.1 | 2026-10-18 | Renamed `spec.md` → `architecture.md`. Added Google sign-in (D-01, D-22, D-23, §5.2) and join-by-request with owner approval (D-24, §8). New tables `user_identities` and `group_join_requests`. `group:join` replaced by `group:request`. Both open questions resolved. |
 | 3.0 | 2026-10-16 | Cut back to this ticket's acceptance criteria. Group-joining design, the full schema, implementation conventions, the full error catalog, pitfalls and implementation tickets moved to TODOs (§12). Renumbered sections. Decision IDs D-01 to D-16 kept their meaning; D-17 onward were renumbered. |
 | 1.0–2.3 | 2026-10-16 | Earlier drafts with implementation and group-feature detail. |
