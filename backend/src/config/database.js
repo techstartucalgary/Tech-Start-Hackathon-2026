@@ -16,25 +16,26 @@ const db = new sqlite3.Database(dbPath, (err) => {
   // database initialization completes to avoid duplicate startup messages.
 });
 
-const initializeDatabase = () => new Promise((resolve, reject) => {
-  db.run(
-    `
+const initializeDatabase = () =>
+  new Promise((resolve, reject) => {
+    db.run(
+      `
       CREATE TABLE IF NOT EXISTS health_checks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         status TEXT NOT NULL,
         checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `,
-    (err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
+      (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
 
-      resolve();
-    }
-  );
-});
+        resolve();
+      }
+    );
+  });
 
 module.exports = {
   db,
