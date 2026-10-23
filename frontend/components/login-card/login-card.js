@@ -1,4 +1,4 @@
-export default function LoginRegisterCard() {
+export default function LoginCard() {
   return (
     <div style={{
       width: '100%',
