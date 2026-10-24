@@ -1,5 +1,5 @@
-import LoginRegisterCard from '../../components/welcome-page/login-register-card';
-import ParticleBackground from '../../components/welcome-page/particle-background';
+import LoginCard from '../../components/login-card/login-card';
+import ParticleBackground from '../../components/animations/particle-background';
 
 export default function WelcomePage() {
   return (
@@ -97,7 +97,7 @@ export default function WelcomePage() {
         position: 'relative',
         zIndex: 1
       }}>
-        <LoginRegisterCard />
+        <LoginCard />
       </div>
     </div>
   );
