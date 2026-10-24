@@ -45,10 +45,14 @@ function formatEntry(level, message, meta) {
 
 const logger = {
   info: (message, meta = {}) => console.log(formatEntry('info', message, meta)),
-  warn: (message, meta = {}) => console.warn(formatEntry('warn', message, meta)),
-  error: (message, meta = {}) => console.error(formatEntry('error', message, meta)),
-  debug: (message, meta = {}) => console.debug(formatEntry('debug', message, meta)),
-  fatal: (message, meta = {}) => console.error(formatEntry('fatal', message, meta)),
+  warn: (message, meta = {}) =>
+    console.warn(formatEntry('warn', message, meta)),
+  error: (message, meta = {}) =>
+    console.error(formatEntry('error', message, meta)),
+  debug: (message, meta = {}) =>
+    console.debug(formatEntry('debug', message, meta)),
+  fatal: (message, meta = {}) =>
+    console.error(formatEntry('fatal', message, meta)),
 };
 
 /**
@@ -59,7 +63,9 @@ function httpLogger(req, res, next) {
   const start = process.hrtime();
   req.log = logger;
   const path = req.originalUrl || req.url || '';
-  const isStaticAsset = /\.(css|js|png|jpg|jpeg|svg|ico|map)$/i.test(path) || path.startsWith('/swagger-ui');
+  const isStaticAsset =
+    /\.(css|js|png|jpg|jpeg|svg|ico|map)$/i.test(path) ||
+    path.startsWith('/swagger-ui');
   if (isStaticAsset && process.env.LOG_STATIC !== 'true') {
     // skip verbose logging for static assets unless explicitly enabled
     return next();
@@ -78,20 +84,30 @@ function httpLogger(req, res, next) {
     };
 
     if (process.env.LOG_HEADERS === 'true') {
-      const allowed = ['host', 'user-agent', 'referer', 'x-forwarded-for', 'accept'];
+      const allowed = [
+        'host',
+        'user-agent',
+        'referer',
+        'x-forwarded-for',
+        'accept',
+      ];
       const safe = redactHeaders(req.headers || {});
       const small = {};
       allowed.forEach((k) => {
         if (safe[k]) {
           let v = safe[k];
-          if (typeof v === 'string' && v.length > 160) v = v.slice(0, 157) + '...';
+          if (typeof v === 'string' && v.length > 160)
+            v = v.slice(0, 157) + '...';
           small[k] = v;
         }
       });
       if (Object.keys(small).length) meta.headers = small;
     }
 
-    logger.info(`${req.method} ${req.originalUrl || req.url} ${res.statusCode}`, meta);
+    logger.info(
+      `${req.method} ${req.originalUrl || req.url} ${res.statusCode}`,
+      meta
+    );
   }
 
   res.on('finish', onFinish);
@@ -104,4 +120,3 @@ module.exports = {
   logger,
   httpLogger,
 };
-
