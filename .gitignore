@@ -19,10 +19,12 @@ node_modules/
 !.env.example
 *.pem
 
+# ---------- Secrets Coverage ----------
+*.key
+
 # ---------- Frontend: Next.js build output ----------
 .next/
 /frontend/out/
-/frontend/build/
 /frontend/next-env.d.ts
 *.tsbuildinfo
 .vercel/
