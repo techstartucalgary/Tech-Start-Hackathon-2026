@@ -1,4 +1,4 @@
-# Auth Overview
+# Auth Planning
 
 A plain-language summary of how users will sign in and what they'll be allowed to do, built with:
 
@@ -6,11 +6,11 @@ A plain-language summary of how users will sign in and what they'll be allowed t
 - Staying signed in: server-side sessions in SQLite + an HttpOnly `sid` cookie
 - Permissions: roles mapped to named permissions, checked by Express middleware
 
-Each numbered section below matches the section with the same number in [architecture.md](architecture.md).
+Each numbered section below matches the section with the same number in [ai-architecture-prompt.md](ai-architecture-prompt.md), which has the exact rules for AI tools and developers.
 
 > **Status:** planned design, nothing is built yet.
 >
-> **architecture.md is the source of truth.** If this file disagrees with it, architecture.md is correct. Change it first, then update the matching section here.
+> **Keep both files in sync.** If the plan changes, update **this file and ai-architecture-prompt.md in the same PR**, so AI tools never build from an outdated plan. If they ever disagree, ai-architecture-prompt.md wins until this file is fixed.
 
 ## Overview
 
@@ -47,7 +47,7 @@ This plan adds auth to the architecture described in the README **without changi
 
 ---
 
-## 0. Ground rules · [§0](architecture.md#0-ground-rules)
+## 0. Ground rules · [§0](ai-architecture-prompt.md#0-ground-rules)
 
 - **Labels:**
   - **DECIDED:** follow it.
@@ -57,65 +57,71 @@ This plan adds auth to the architecture described in the README **without changi
 - **Identity:** the acting user always comes from the session, never from what the client sends.
 - **Security:** the backend makes every decision. When in doubt, deny.
 
-## 1. Decision log · [§1](architecture.md#1-decision-log)
+## 1. Decision log · [§1](ai-architecture-prompt.md#1-decision-log)
 
 - **Sessions over JWTs:** sessions live in the database, and the browser holds a random token in an HttpOnly cookie. Signing out and role changes take effect immediately.
 - **Expiry:** sessions expire after 7 days unused, or 30 days at most.
 - **Same-origin calls:** the browser talks to the backend through a Next.js `/api` proxy. CORS uses an allowlist, plus an Origin check against CSRF.
 - **Permissions, not roles:** the code checks permissions, so new roles can be added later without touching routes.
-- **Staff overrides:** staff act on other groups only through permissions ending in `:any`.
+- **One staff role:** `organizer`. There's no separate admin role.
+- **Staff overrides:** organizers act on other groups only through permissions ending in `:any`.
 - **Agreed with the team:**
   - one group per user
   - registering and enrolling are separate steps
   - staff can compete
   - everyone signed in can see all groups
   - Google sign-in is in the first build
-  - you join a group by requesting, and the group's Lead (owner) approves
+  - you join a group by requesting, and the group's lead approves
 
-## 2. Vocabulary · [§2](architecture.md#2-vocabulary)
+## 2. Vocabulary · [§2](ai-architecture-prompt.md#2-vocabulary)
 
 | Term | Meaning |
 |---|---|
 | `user` | An account, and the default role. |
 | Participant | A user who has enrolled. This is not a role. |
 | `group` | A team. UI text can say "team"; code says "group". |
-| `owner` / `member` | Your role inside a group. The owner shows as "Lead" in the UI. |
+| Lead | Started the group (or was handed the role) and approves who joins. One per group. |
+| Member | Someone who has been **accepted** into the group. |
+| Requester | Someone who asked to join and is still waiting. Not a member yet. |
+| Staff | Users with the `organizer` role. |
 | Session / `sid` | The server's record of who's signed in, and the cookie that points to it. |
 | Join request | A request to join a group: pending, approved, declined or cancelled. |
 
-## 3. Invariants · [§3](architecture.md#3-invariants)
+## 3. Invariants · [§3](ai-architecture-prompt.md#3-invariants)
 
 Always true:
 
 - **Groups:**
   - Every user has exactly one role.
   - A user is in at most one group, and only enrolled users can be in one.
-  - Every group has exactly one owner.
+  - Every group has exactly one lead.
   - Nobody joins a group unless their own request is approved (or they created it).
   - At most one pending request per group, and none once you're in a group.
 - **Identity and access:**
   - The acting user comes from the session.
   - Passwords and tokens are never stored or logged in plain text.
-  - Only an admin can change someone's role.
+  - Only an organizer can change someone's role.
 - **Routes:**
   - Every route needs sign-in unless it's on the public list.
   - All permission checks happen in the backend.
 
-## 4. Data model · [§4](architecture.md#4-data-model-auth-level)
+## 4. Data model · [§4](ai-architecture-prompt.md#4-data-model-auth-level)
 
 | Table | What auth needs from it |
 |---|---|
-| `users` | Email, password hash (empty for Google-only accounts), role |
+| `users` | **Every person**, however they sign in: email, password hash (empty for Google-only accounts), role |
 | `sessions` | Hashed token and expiry times |
-| `user_identities` | Linked Google accounts (by Google's user id) |
+| `oauth_accounts` | A Google login linked to a person in `users` (by Google's user id) |
 | `hackathon_enrollments` | Whether the user is enrolled |
 | `groups` | The group |
-| `group_members` | Who's in which group, as owner or member |
-| `group_join_requests` | Join requests and their status |
+| `group_members` | Who's in which group, as lead or member |
+| `group_join_requests` | Requesters and the status of their requests |
+
+There's one `users` table rather than `email_users` + `google_users`, because one person can sign in both ways, and everything else (sessions, groups) points to one user.
 
 The full schema is a TODO.
 
-## 5. Register, sign in, sign out · [§5](architecture.md#5-register-sign-in-sign-out)
+## 5. Register, sign in, sign out · [§5](ai-architecture-prompt.md#5-register-sign-in-sign-out)
 
 | Endpoint | Does |
 |---|---|
@@ -135,7 +141,7 @@ The full schema is a TODO.
   - **New accounts:** otherwise a new account is created, with no password.
   - **Same session:** either way, the user ends up with the same kind of session as an email sign-in.
 
-## 6. Staying signed in · [§6](architecture.md#6-identifying-users-and-maintaining-state)
+## 6. Staying signed in · [§6](ai-architecture-prompt.md#6-identifying-users-and-maintaining-state)
 
 This is the README's request lifecycle with the auth steps added (**bold**):
 
@@ -154,18 +160,17 @@ This is the README's request lifecycle with the auth steps added (**bold**):
 
 The role is re-read from the database on every request, so changes apply right away.
 
-## 7. Roles and permissions · [§7](architecture.md#7-authorization-model)
+## 7. Roles and permissions · [§7](ai-architecture-prompt.md#7-authorization-model)
 
 - **Global roles:**
   - `user`: enroll, create a group or request to join one.
-  - `organizer`: the same, plus viewing enrollments and moderating any group.
-  - `admin`: the same as an organizer, plus changing roles.
+  - `organizer`: the same, plus viewing enrollments, moderating any group and changing roles. The first organizer is set up by a seed script.
 - **Group roles:**
-  - `owner`: edit, manage members (approve or decline requests, remove members), transfer ownership, delete, leave.
+  - `lead`: edit, manage members (approve or decline requesters, remove members), hand the lead role to another member, delete, leave.
   - `member`: leave.
 - **How checks work:** roles are bundles of named permissions, and one function, `can()`, makes every decision.
 
-## 8. Who can do what · [§8](architecture.md#8-authorization-rules)
+## 8. Who can do what · [§8](ai-architecture-prompt.md#8-authorization-rules)
 
 | Action | Allowed for |
 |---|---|
@@ -174,12 +179,12 @@ The role is re-read from the database on every request, so changes apply right a
 | Enroll | Anyone signed in |
 | Create a group | Enrolled users not already in a group |
 | Request to join a group | Enrolled users not already in a group (one pending request per group) |
-| Approve or decline join requests | The group's owner, or staff |
-| Modify, manage members, transfer, delete | The group's owner, or staff |
-| Leave | Members. The owner must transfer ownership first, unless they're the last member. |
-| Change a user's role | Admins (not their own) |
+| Approve or decline requesters | The group's lead, or an organizer |
+| Modify, manage members, hand over the lead role, delete | The group's lead, or an organizer |
+| Leave | Members. The lead must hand the lead role to a member first, unless they're the last member. |
+| Change a user's role | Organizers (not their own) |
 
-## 9. Group check flow · [§9](architecture.md#9-group-authorization-flow)
+## 9. Group check flow · [§9](ai-architecture-prompt.md#9-group-authorization-flow)
 
 ```text
                     ┌──────────────────────────────┐
@@ -193,7 +198,7 @@ The role is re-read from the database on every request, so changes apply right a
                                    ↓
                     ┌──────────────────────────────┐
                     │ Backend verifies User        │ : 403 if not a member
-                    │ belongs to Group A           │   (staff skip this)
+                    │ belongs to Group A           │   (organizers skip this)
                     └──────────────┬───────────────┘
                                    ↓
                     ┌──────────────────────────────┐
@@ -208,7 +213,7 @@ The role is re-read from the database on every request, so changes apply right a
 
 One middleware, `authorizeGroupAction`, does this for every action inside a group.
 
-## 10. Errors · [§10](architecture.md#10-handling-unauthorized-requests)
+## 10. Errors · [§10](ai-architecture-prompt.md#10-handling-unauthorized-requests)
 
 | Status | Meaning |
 |---|---|
@@ -220,13 +225,15 @@ One middleware, `authorizeGroupAction`, does this for every action inside a grou
 
 Every error has the shape `{ success: false, error: { code, message } }`. On the frontend, a 401 sends the user to sign in and a 403 shows a "no permission" message.
 
-## 11. Growing later · [§11](architecture.md#11-supporting-more-roles-and-permissions)
+Rejections are also written to our existing logger (`backend/src/config/logger.js`) with the user, route and error `code`, so we can trace what was blocked and why.
+
+## 11. Growing later · [§11](ai-architecture-prompt.md#11-supporting-more-roles-and-permissions)
 
 - **New roles or permissions:** add them to one list. Routes don't change.
 - **Other sign-in providers** (e.g. GitHub): same pattern as Google, with sessions unchanged.
 - **Other ways to join** (e.g. invite links): can be added later, as long as nobody joins without their own action.
 
-## 12. TODOs · [§12](architecture.md#12-todos-outside-this-ticket)
+## 12. TODOs · [§12](ai-architecture-prompt.md#12-todos-outside-this-ticket)
 
 These are left for their own tickets:
 
@@ -238,15 +245,16 @@ These are left for their own tickets:
 - the full error list
 - rate-limit values
 - frontend wiring
+- a seed script for the first organizer
 - implementation tickets
 - the roster deadline
 
-## 13. Open questions · [§13](architecture.md#13-open-questions)
+## 13. Open questions · [§13](ai-architecture-prompt.md#13-open-questions)
 
 None right now. Both were answered on 2026-10-18:
 
 - **Google sign-in in the first build?** Yes.
-- **How do people join a group?** By requesting; the group's Lead (owner) approves.
+- **How do people join a group?** By requesting; the group's lead approves.
 
 ## Notes
 

@@ -20,11 +20,11 @@ The backend is layered **routes → controllers → services → models**. See `
 
 ## Which doc to read for your task
 
-"Spec" below means `docs/auth/architecture.md`, the auth source of truth.
+"Spec" below means `docs/auth/ai-architecture-prompt.md`, the auth source of truth.
 
 | If you're working on… | Read |
 |---|---|
-| Anything touching users, sign-in, roles, enrollment or groups | `docs/auth/architecture.md` **§0 first**, then the rows below |
+| Anything touching users, sign-in, roles, enrollment or groups | `docs/auth/ai-architecture-prompt.md` **§0 first**, then the rows below |
 | Register, sign in (including Google), sign out, sessions, cookies | spec §5, §6 |
 | Roles, permissions, `can()`, middleware | spec §7 |
 | Who can do what, and the group check flow | spec §8, §9 |
@@ -33,11 +33,11 @@ The backend is layered **routes → controllers → services → models**. See `
 | Join requests | spec §8.2, §8.3, decision D-24 |
 | The full schema, backend conventions, frontend wiring, Google Cloud setup | spec §12: these are **TODOs**. Don't invent a design; ask for, or create, a ticket. |
 | Database migrations | `backend/migrations/MIGRATIONS.md` |
-| Explaining the design to a person | `docs/auth/overview.md` |
+| Explaining the design to a person | `docs/auth/planning.md` |
 | Logging | `backend/LOGGING.md` |
 | Lint and formatting | `backend/LINTING_AND_FORMATTING.md` |
 
-`docs/auth/architecture.md` is the source of truth. `overview.md` is a simplified summary. If they disagree, the spec wins.
+`docs/auth/ai-architecture-prompt.md` has the exact rules; `docs/auth/planning.md` is the readable summary. **Update both in the same PR whenever the plan changes.** If they disagree, the AI prompt file wins until the other is fixed.
 
 **The README predates the auth design and is left unchanged on purpose.** Where they differ, the auth docs win:
 
@@ -49,7 +49,7 @@ The full table is in spec "Where this spec differs from the README".
 
 ## Rules
 
-1. **Follow the spec, don't redesign it.** If a task needs something the spec doesn't allow, update `docs/auth/architecture.md` in the same PR and say why. Don't silently do it differently.
+1. **Follow the spec, don't redesign it.** If a task needs something the spec doesn't allow, update `docs/auth/ai-architecture-prompt.md` in the same PR and say why. Don't silently do it differently.
 2. **Use the spec's exact names**: roles, permissions, tables, middleware (spec §2). For example, it's `group` in code, never `team`.
 3. **Commonly suggested but rejected here:** JWTs, tokens in `localStorage`, wildcard (`'*'`) permissions, `cors({ origin: true })`. See spec §1, decisions D-03, D-05, D-11, D-08.
 4. **Keep the layering:** routes wire middleware, controllers handle `req`/`res`, services hold business rules, models hold SQL.
@@ -69,5 +69,5 @@ just ci              # lint + format check + tests + frontend build; run before 
 ## When you finish a task
 
 - Run `just ci`.
-- If you built something from `docs/auth/architecture.md`, update **"What exists today"** above.
-- If you changed a design decision, update the spec (and its changelog) first, then `overview.md` if the plain-language summary is affected.
+- If you built something from `docs/auth/ai-architecture-prompt.md`, update **"What exists today"** above.
+- If you changed a design decision, update **both** `docs/auth/ai-architecture-prompt.md` (and its changelog) and `docs/auth/planning.md` in the same PR.
