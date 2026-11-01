@@ -1,3 +1,6 @@
+require('dotenv').config({
+  path: require('path').resolve(__dirname, '../.env'),
+});
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -5,6 +8,8 @@ const { initializeDatabase } = require('./config/database');
 const { swaggerUi, swaggerSpec } = require('./config/swagger');
 const { httpLogger, logger } = require('./config/logger');
 const healthRoutes = require('./routes/health/health.routes');
+const authRoutes = require('./routes/auth/auth.routes');
+const { allowedOrigins } = require('./config/auth');
 
 const app = express();
 
@@ -12,7 +17,7 @@ app.use(helmet());
 app.use(httpLogger);
 app.use(
   cors({
-    origin: true,
+    origin: allowedOrigins(),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -32,6 +37,7 @@ app.get('/api', (req, res) => {
 });
 
 app.use('/api/health', healthRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/swagger-ui', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use((err, req, res, next) => {

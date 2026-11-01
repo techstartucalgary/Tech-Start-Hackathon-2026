@@ -47,5 +47,6 @@ const initializeDatabase = () =>
 
 module.exports = {
   db,
+  dbPath,
   initializeDatabase,
 };

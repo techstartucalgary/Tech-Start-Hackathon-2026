@@ -1,58 +1,119 @@
 import { useId } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
+import { useAuth } from '../auth/auth-provider';
+
+const googleErrors = {
+  GOOGLE_AUTH_CANCELLED: 'Google sign-in was cancelled. You can try again.',
+  GOOGLE_AUTH_FAILED: 'Google sign-in failed. Please try again.',
+  GOOGLE_EMAIL_UNVERIFIED:
+    'Please verify your Google email address before signing in.',
+  GOOGLE_NOT_CONFIGURED:
+    'Google sign-in is not available yet. Please try again later.',
+  ACCOUNT_LINK_REQUIRED:
+    'An account already uses this email. Sign in with your existing method before linking Google.',
+};
 
 // Design: https://www.figma.com/design/NsAFWkz6tAjDKgAce2XTQL/Tech-Start-Hackathon-2026?node-id=3-17798
-export default function LoginCard() {
+export default function LoginCard({ registration = false }) {
   const id = useId();
+  const router = useRouter();
+  const { user, loading, error, refresh, logout } = useAuth();
+  const googleError =
+    typeof router.query.error === 'string' &&
+    Object.prototype.hasOwnProperty.call(googleErrors, router.query.error)
+      ? googleErrors[router.query.error]
+      : null;
 
   return (
     <section className="login-card" aria-labelledby={`${id}-title`}>
       <div className="heading">
-        <h2 id={`${id}-title`}>Welcome back</h2>
+        <h2 id={`${id}-title`}>
+          {user
+            ? `Welcome, ${user.display_name}`
+            : registration
+              ? 'Create your account'
+              : 'Welcome back'}
+        </h2>
         <p className="instructions">
-          Continue with Google or sign in with your email and password.
+          {user
+            ? `Signed in as ${user.email}`
+            : 'Continue with Google or sign in with your email and password.'}
         </p>
       </div>
 
-      {/* SCRUM-8 is display-only; authentication is handled in later tickets. */}
-      <button className="google-button" type="button" disabled>
-        {/* Official asset: https://developers.google.com/identity/branding-guidelines */}
-        <img src="/images/google-g.png" width="18" height="18" alt="" />
-        Continue with Google
-      </button>
+      {(error || (!user && googleError)) && (
+        <p role="alert" className="instructions">
+          {error || googleError}
+        </p>
+      )}
+      {error && (
+        <button className="google-button" type="button" onClick={refresh}>
+          Retry
+        </button>
+      )}
+      {loading ? (
+        <p role="status">Checking sign-in…</p>
+      ) : user ? (
+        <button className="email-button" type="button" onClick={logout}>
+          Sign out
+        </button>
+      ) : (
+        <>
+          <a className="google-button" href="/api/auth/google">
+            {/* Official asset: https://developers.google.com/identity/branding-guidelines */}
+            <img src="/images/google-g.png" width="18" height="18" alt="" />
+            Continue with Google
+          </a>
 
-      <div className="divider">OR</div>
+          <div className="divider">OR</div>
 
-      <div className="fields">
-        <div className="field">
-          <label htmlFor={`${id}-email`}>Email address</label>
-          <input
-            id={`${id}-email`}
-            type="email"
-            placeholder="name@domain.com"
-            autoComplete="off"
-            readOnly
-          />
-        </div>
-        <div className="field">
-          <label htmlFor={`${id}-password`}>Password</label>
-          <input
-            id={`${id}-password`}
-            type="password"
-            placeholder="••••••••"
-            autoComplete="off"
-            readOnly
-          />
-        </div>
-      </div>
+          <div className="fields">
+            <div className="field">
+              <label htmlFor={`${id}-email`}>Email address</label>
+              <input
+                id={`${id}-email`}
+                type="email"
+                placeholder="name@domain.com"
+                autoComplete="off"
+                readOnly
+              />
+            </div>
+            <div className="field">
+              <label htmlFor={`${id}-password`}>Password</label>
+              <input
+                id={`${id}-password`}
+                type="password"
+                placeholder="••••••••"
+                autoComplete="off"
+                readOnly
+              />
+            </div>
+          </div>
 
-      <button className="email-button" type="button" disabled>
-        Sign in with email and password
-      </button>
+          <button className="email-button" type="button" disabled>
+            {registration
+              ? 'Register with email and password'
+              : 'Sign in with email and password'}
+          </button>
 
-      <p className="register-prompt">
-        Don’t have an account? <Link href="/register">Register</Link>
-      </p>
+          <p className="instructions">
+            Email and password sign-in is coming soon.
+          </p>
+
+          <p className="register-prompt">
+            {registration ? (
+              <>
+                Already have an account? <Link href="/login">Sign in</Link>
+              </>
+            ) : (
+              <>
+                Don’t have an account? <Link href="/register">Register</Link>
+              </>
+            )}
+          </p>
+        </>
+      )}
 
       <style jsx>{`
         .login-card {
@@ -86,7 +147,8 @@ export default function LoginCard() {
           color: #a9b3b3;
         }
 
-        button {
+        button,
+        .google-button {
           box-sizing: border-box;
           display: flex;
           align-items: center;
@@ -108,6 +170,8 @@ export default function LoginCard() {
 
         .google-button {
           background: var(--color-white);
+          text-decoration: none;
+          cursor: pointer;
         }
 
         .google-button img {
@@ -169,6 +233,10 @@ export default function LoginCard() {
           background: var(--color-primary-green);
         }
 
+        button:not(:disabled) {
+          cursor: pointer;
+        }
+
         .register-prompt {
           text-align: center;
           font-size: 13px;
@@ -193,6 +261,8 @@ export default function LoginCard() {
         }
 
         input:focus-visible,
+        button:focus-visible,
+        .google-button:focus-visible,
         .register-prompt :global(a:focus-visible) {
           outline: 2px solid var(--color-primary-green);
           outline-offset: 4px;
