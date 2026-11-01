@@ -64,7 +64,6 @@ async function me(req, res, next) {
       return res.json({ user: null });
     }
     const { expires_at, ...user } = session;
-    req.user = user;
     res.cookie('sid', token, {
       ...cookieOptions(),
       expires: new Date(expires_at),

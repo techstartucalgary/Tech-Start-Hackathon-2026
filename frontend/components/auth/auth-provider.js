@@ -31,8 +31,6 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     refresh();
-    window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
   }, [refresh]);
 
   async function logout() {

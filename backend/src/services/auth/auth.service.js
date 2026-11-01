@@ -7,7 +7,7 @@ function googleClient() {
   const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } =
     process.env;
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
-    throw authError('GOOGLE_NOT_CONFIGURED', 503);
+    throw authError('GOOGLE_NOT_CONFIGURED');
   }
   return new OAuth2Client(
     GOOGLE_CLIENT_ID,

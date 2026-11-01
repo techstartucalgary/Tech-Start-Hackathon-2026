@@ -24,8 +24,7 @@ const allowedOrigins = () =>
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
-const authError = (code, status = 401) =>
-  Object.assign(new Error(code), { code, status });
+const authError = (code) => Object.assign(new Error(code), { code });
 
 module.exports = {
   DAY,

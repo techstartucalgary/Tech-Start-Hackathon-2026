@@ -56,7 +56,7 @@ async function signInGoogle(profile, tokenHash, previousHash) {
     started = true;
     let user = await get(
       connection,
-      `SELECT users.id, email, display_name, role FROM users
+      `SELECT users.id FROM users
       JOIN oauth_accounts ON users.id = oauth_accounts.user_id
       WHERE provider = 'google' AND provider_user_id = ?`,
       [profile.sub]
@@ -64,7 +64,7 @@ async function signInGoogle(profile, tokenHash, previousHash) {
     if (!user) {
       user = await get(
         connection,
-        'SELECT id, email, display_name, role FROM users WHERE email = ? COLLATE NOCASE',
+        'SELECT id FROM users WHERE email = ? COLLATE NOCASE',
         [profile.email]
       );
       if (user && !profile.authoritativeEmail)
@@ -75,11 +75,7 @@ async function signInGoogle(profile, tokenHash, previousHash) {
           'INSERT INTO users (email, display_name) VALUES (?, ?)',
           [profile.email, profile.name]
         );
-        user = await get(
-          connection,
-          'SELECT id, email, display_name, role FROM users WHERE id = ?',
-          [inserted.lastID]
-        );
+        user = { id: inserted.lastID };
       }
       await run(
         connection,
@@ -102,7 +98,6 @@ async function signInGoogle(profile, tokenHash, previousHash) {
     );
     await run(connection, 'COMMIT');
     started = false;
-    return user;
   } catch (error) {
     if (started) await run(connection, 'ROLLBACK');
     throw error;

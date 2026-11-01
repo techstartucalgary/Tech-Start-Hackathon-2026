@@ -8,7 +8,7 @@ const options = {
       title: 'Tech Start Hackathon 2026 API',
       version: '1.0.0',
       description:
-        'API documentation for the backend health and demo endpoints.',
+        'API documentation for backend health and Google authentication.',
     },
     servers: [
       {
