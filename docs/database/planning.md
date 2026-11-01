@@ -150,11 +150,16 @@ erDiagram
 3. **Create a group:** confirm active enrollment and no existing membership.
    Create the `groups` row and the creator's `group_members` row with role `lead`
    in one transaction. The creator is now the owner.
-4. **Join a group:** create a pending `group_join_requests` row. When the group's
-   lead or an authorized organizer approves it, recheck active enrollment and
-   absence of another membership, then insert a `group_members` row with role
-   `member` and mark the request approved in one transaction. Cancel the user's
-   other pending requests when they become a member or create a group.
+4. **Join a group:** require active enrollment in the target group's hackathon,
+   no existing membership, and no pending request to that group before creating
+   a pending `group_join_requests` row. Only the target group's lead or an
+   organizer with `group:members:manage:any` may approve a pending request.
+   Recheck active enrollment and absence of another membership at approval,
+   then insert a `group_members` row with role `member` and mark the request
+   approved in one transaction. If the requester is no longer eligible, cancel
+   the stale pending request and return `409`, as specified in the auth plan.
+   Cancel the user's other pending requests in the transaction that makes them
+   a member or creates their group.
 5. **Identify the group:** for a modification request, load the target group by
    its ID and look up membership using both that group ID and the authenticated
    user's ID.
@@ -188,7 +193,9 @@ The backend performs these checks on every group modification request:
 3. Load `group_members` by `(group_id, user_id)`. Reject with `403` if there is
    no membership and no explicit organizer override for the requested action.
 4. Check the required permission using the current global and group roles.
-   Reject with `403` if the permission is missing; otherwise allow the update
-   subject to normal input validation.
+   Reject with `403` if the permission is missing.
+5. Validate the input (`400` for invalid input), then check the applicable
+   current-state rules (`409` if blocked). Only then allow the update. This
+   preserves the auth plan's check order: `401` -> `404` -> `403` -> `400` -> `409`.
 
 Membership in a different group never grants permission over the target group.
