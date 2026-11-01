@@ -15,13 +15,11 @@ beforeEach(async () => {
       (2, 'member@example.com', 'Member'),
       (3, 'requester@example.com', 'Requester'),
       (4, 'outsider@example.com', 'Outsider');
-    INSERT INTO hackathons (id, name) VALUES (1, 'First event'), (2, 'Second event');
-    INSERT INTO hackathon_enrollments (hackathon_id, user_id)
-      VALUES (1, 1), (1, 2), (1, 3), (2, 2);
-    INSERT INTO groups (id, hackathon_id, name)
-      VALUES (1, 1, 'First group'), (2, 1, 'Second group'), (3, 2, 'Other event');
-    INSERT INTO group_members (group_id, user_id, hackathon_id, role)
-      VALUES (1, 1, 1, 'lead');
+    INSERT INTO hackathon_enrollments (user_id) VALUES (1), (2), (3);
+    INSERT INTO groups (id, name)
+      VALUES (1, 'First group'), (2, 'Second group');
+    INSERT INTO group_members (group_id, user_id, role)
+      VALUES (1, 1, 'lead');
     `
   );
 });
@@ -36,7 +34,7 @@ test('stores registration, enrollment, a lead and an approved member separately'
   ).toEqual([{ role: 'user', password_hash: null }]);
   await run(
     db,
-    'INSERT INTO group_join_requests (group_id, user_id, hackathon_id) VALUES (1, 2, 1)'
+    'INSERT INTO group_join_requests (group_id, user_id) VALUES (1, 2)'
   );
   expect(
     await all(db, 'SELECT * FROM group_members WHERE user_id = 2')
@@ -45,7 +43,7 @@ test('stores registration, enrollment, a lead and an approved member separately'
   await execute(
     db,
     `BEGIN;
-     INSERT INTO group_members (group_id, user_id, hackathon_id) VALUES (1, 2, 1);
+     INSERT INTO group_members (group_id, user_id) VALUES (1, 2);
      UPDATE group_join_requests SET status = 'approved', decided_by = 1,
        decided_at = CURRENT_TIMESTAMP WHERE user_id = 2;
      COMMIT;`
@@ -75,9 +73,9 @@ test.each([
   'UPDATE users SET role = NULL WHERE id = 1',
   "UPDATE hackathon_enrollments SET status = 'invalid' WHERE user_id = 1",
   "UPDATE group_members SET role = 'owner' WHERE user_id = 1",
-  'INSERT INTO hackathon_enrollments (hackathon_id, user_id) VALUES (1, 1)',
-  'INSERT INTO hackathon_enrollments (hackathon_id, user_id) VALUES (99, 1)',
-  'INSERT INTO hackathon_enrollments (hackathon_id, user_id) VALUES (1, 99)',
+  'INSERT INTO hackathon_enrollments (user_id) VALUES (99)',
+  'INSERT INTO hackathon_enrollments (user_id) VALUES (NULL)',
+  'INSERT INTO hackathon_enrollments DEFAULT VALUES',
 ])(
   'rejects missing fields, invalid roles/statuses and invalid enrollments: %s',
   async (sql) => {
@@ -87,30 +85,46 @@ test.each([
   }
 );
 
-test('allows only one group per user, including across hackathons', async () => {
+test.each(['active', 'withdrawn'])(
+  'rejects a second enrollment for the same user with status %s',
+  async (status) => {
+    await expect(
+      run(
+        db,
+        'INSERT INTO hackathon_enrollments (user_id, status) VALUES (1, ?)',
+        [status]
+      )
+    ).rejects.toMatchObject({ code: 'SQLITE_CONSTRAINT' });
+  }
+);
+
+test('withdraws and reactivates the same enrollment record', async () => {
+  const original = await all(
+    db,
+    'SELECT * FROM hackathon_enrollments WHERE user_id = 2'
+  );
   await run(
     db,
-    'INSERT INTO group_members (group_id, user_id, hackathon_id) VALUES (1, 2, 1)'
+    "UPDATE hackathon_enrollments SET status = 'withdrawn' WHERE user_id = 2"
   );
+  await run(
+    db,
+    "UPDATE hackathon_enrollments SET status = 'active' WHERE user_id = 2"
+  );
+  expect(
+    await all(db, 'SELECT * FROM hackathon_enrollments WHERE user_id = 2')
+  ).toEqual(original);
+});
+
+test('allows only one group per user', async () => {
+  await run(db, 'INSERT INTO group_members (group_id, user_id) VALUES (1, 2)');
   await expect(
-    run(
-      db,
-      'INSERT INTO group_members (group_id, user_id, hackathon_id) VALUES (2, 2, 1)'
-    )
-  ).rejects.toMatchObject({ code: 'SQLITE_CONSTRAINT' });
-  await expect(
-    run(
-      db,
-      'INSERT INTO group_members (group_id, user_id, hackathon_id) VALUES (3, 2, 2)'
-    )
+    run(db, 'INSERT INTO group_members (group_id, user_id) VALUES (2, 2)')
   ).rejects.toMatchObject({ code: 'SQLITE_CONSTRAINT' });
 });
 
 test('rejects a second lead and permits transferring the lead within a transaction', async () => {
-  await run(
-    db,
-    'INSERT INTO group_members (group_id, user_id, hackathon_id) VALUES (1, 2, 1)'
-  );
+  await run(db, 'INSERT INTO group_members (group_id, user_id) VALUES (1, 2)');
   await expect(
     run(db, "UPDATE group_members SET role = 'lead' WHERE user_id = 2")
   ).rejects.toMatchObject({ code: 'SQLITE_CONSTRAINT' });
@@ -127,20 +141,18 @@ test('rejects a second lead and permits transferring the lead within a transacti
 });
 
 test.each(['group_members', 'group_join_requests'])(
-  '%s requires enrollment in the target group’s hackathon',
+  '%s requires an enrolled user and an existing group',
   async (table) => {
-    // User 4 has no enrollment; user 3 is only enrolled in hackathon 1.
+    // User 4 is registered but has not enrolled.
     for (const values of [
-      '(1, 4, 1)',
-      '(3, 3, 2)',
-      '(3, 3, 1)',
-      '(99, 3, 1)',
+      '(1, 4)',
+      '(1, 99)',
+      '(99, 3)',
+      '(1, NULL)',
+      '(NULL, 3)',
     ]) {
       await expect(
-        run(
-          db,
-          `INSERT INTO ${table} (group_id, user_id, hackathon_id) VALUES ${values}`
-        )
+        run(db, `INSERT INTO ${table} (group_id, user_id) VALUES ${values}`)
       ).rejects.toMatchObject({ code: 'SQLITE_CONSTRAINT' });
     }
   }
@@ -149,14 +161,11 @@ test.each(['group_members', 'group_join_requests'])(
 test('permits requests from multiple users but only one pending request per user and group', async () => {
   await execute(
     db,
-    `INSERT INTO group_join_requests (group_id, user_id, hackathon_id)
-    VALUES (1, 2, 1), (1, 3, 1), (2, 2, 1);`
+    `INSERT INTO group_join_requests (group_id, user_id)
+    VALUES (1, 2), (1, 3), (2, 2);`
   );
   await expect(
-    run(
-      db,
-      'INSERT INTO group_join_requests (group_id, user_id, hackathon_id) VALUES (1, 2, 1)'
-    )
+    run(db, 'INSERT INTO group_join_requests (group_id, user_id) VALUES (1, 2)')
   ).rejects.toMatchObject({ code: 'SQLITE_CONSTRAINT' });
   await run(
     db,
@@ -164,7 +173,7 @@ test('permits requests from multiple users but only one pending request per user
   );
   await run(
     db,
-    'INSERT INTO group_join_requests (group_id, user_id, hackathon_id) VALUES (1, 2, 1)'
+    'INSERT INTO group_join_requests (group_id, user_id) VALUES (1, 2)'
   );
   expect(
     await all(db, 'SELECT COUNT(*) AS count FROM group_join_requests')
@@ -181,7 +190,7 @@ test.each([
 ])('rejects inconsistent request decisions: %s', async (assignment) => {
   await run(
     db,
-    'INSERT INTO group_join_requests (group_id, user_id, hackathon_id) VALUES (1, 2, 1)'
+    'INSERT INTO group_join_requests (group_id, user_id) VALUES (1, 2)'
   );
   await expect(
     run(db, `UPDATE group_join_requests SET ${assignment}`)
@@ -190,11 +199,23 @@ test.each([
 
 test.each([
   'DELETE FROM users WHERE id = 1',
-  'DELETE FROM hackathons WHERE id = 1',
-  'DELETE FROM hackathon_enrollments WHERE hackathon_id = 1 AND user_id = 1',
+  'DELETE FROM hackathon_enrollments WHERE user_id = 1',
   'DELETE FROM groups WHERE id = 1',
-  'UPDATE groups SET hackathon_id = 2 WHERE id = 1',
+  'UPDATE hackathon_enrollments SET user_id = 4 WHERE user_id = 1',
 ])('prevents orphaning existing membership: %s', async (sql) => {
+  await expect(run(db, sql)).rejects.toMatchObject({
+    code: 'SQLITE_CONSTRAINT',
+  });
+});
+
+test.each([
+  'DELETE FROM groups WHERE id = 2',
+  'DELETE FROM hackathon_enrollments WHERE user_id = 3',
+])('prevents orphaning a pending request: %s', async (sql) => {
+  await run(
+    db,
+    'INSERT INTO group_join_requests (group_id, user_id) VALUES (2, 3)'
+  );
   await expect(run(db, sql)).rejects.toMatchObject({
     code: 'SQLITE_CONSTRAINT',
   });
@@ -203,7 +224,7 @@ test.each([
 test('rolls back populated tables in dependency order and can be applied again', async () => {
   await run(
     db,
-    'INSERT INTO group_join_requests (group_id, user_id, hackathon_id) VALUES (1, 2, 1)'
+    'INSERT INTO group_join_requests (group_id, user_id) VALUES (1, 2)'
   );
   await execute(
     db,

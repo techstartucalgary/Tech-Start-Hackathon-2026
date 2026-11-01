@@ -140,9 +140,7 @@ test.each(['down', 'reset'])(
 );
 
 test('the CLI enforces foreign keys on its own connection', async () => {
-  addFixture(
-    'INSERT INTO hackathon_enrollments (hackathon_id, user_id) VALUES (999, 999);'
-  );
+  addFixture('INSERT INTO hackathon_enrollments (user_id) VALUES (999);');
   const result = migrate('up');
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('FOREIGN KEY constraint failed');

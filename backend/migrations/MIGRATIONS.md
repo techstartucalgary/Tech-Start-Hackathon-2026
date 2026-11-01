@@ -113,22 +113,28 @@ The migration runner records applied migration names in a `schema_migrations` ta
 
 ## Hackathon database tables
 
-`20261101_000000_create_hackathon_tables.js` implements the six tables documented
+`20261101_000000_create_hackathon_tables.js` implements the five tables documented
 in [SCRUM-11 / PR #14](https://github.com/techstartucalgary/Tech-Start-Hackathon-2026/pull/14):
-`users`, `hackathons`, `hackathon_enrollments`, `groups`, `group_members`, and
+`users`, `hackathon_enrollments`, `groups`, `group_members`, and
 `group_join_requests`. Run `npm run migrate:up` before using these tables. App
 startup continues to initialize only the existing health-check table.
 
+This application serves one hackathon. Enrollment uses `user_id` as its primary
+key and a foreign key to `users.id`; withdrawal and re-enrollment update that
+user's existing row. There is no `hackathons` table or `hackathon_id` field.
+The enrollment table uses [`WITHOUT ROWID`](https://www.sqlite.org/withoutrowid.html)
+so SQLite requires an explicit user ID instead of generating one.
+
 The schema enforces required fields, allowed roles and statuses, case-insensitive
-ASCII email uniqueness, one group per user across all hackathons, at most one
-`lead` per group, and one pending request per user/group pair. Composite foreign
-keys require memberships and requests to refer to enrollment in the group's own
-hackathon. Completed requests need a decision time; approvals and declines also
+ASCII email uniqueness, one enrollment and one group per user, at most one
+`lead` per group, and one pending request per user/group pair. Memberships and
+requests reference `groups.id` and `hackathon_enrollments.user_id` directly.
+Completed requests need a decision time; approvals and declines also
 need a deciding user. Automatic cancellation may leave `decided_by` null.
 
 The application initializer and migration runner both enable SQLite foreign keys.
 Foreign keys use SQLite's default `NO ACTION`: deleting a referenced user,
-hackathon, enrollment, or group fails while dependent rows remain. Group deletion
+enrollment, or group fails while dependent rows remain. Group deletion
 must explicitly remove its requests and memberships in the same transaction.
 
 Service-layer rules still need to enforce active enrollment, creation/transfer of
@@ -136,6 +142,15 @@ exactly one lead, approval permissions, and cancellation of other pending reques
 when a user joins or creates a group. The unique lead index only prevents multiple
 leads; it cannot ensure that a group always has one. This migration does not
 implement authentication, API endpoints, or the permission middleware.
+
+### Earlier PR #15 checkouts
+
+The initial migration was simplified while PR #15 was still unmerged. If you
+already applied its earlier multi-event version, `migrate:up` will not rerun it.
+Use a fresh database via `DATABASE_PATH` to try this version without changing
+your existing data. For a disposable test database, you can instead run
+`migrate:down` from the earlier checkout before pulling this revision, then run
+`migrate:up`. Do not use the revised rollback against the earlier schema.
 
 ### Isolated databases and validation
 

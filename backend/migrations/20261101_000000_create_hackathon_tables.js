@@ -20,46 +20,29 @@ module.exports = {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
 
-      CREATE TABLE hackathons (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL
-      );
-
+      -- WITHOUT ROWID requires an explicit user_id instead of generating one.
       CREATE TABLE hackathon_enrollments (
-        hackathon_id INTEGER NOT NULL,
-        user_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL PRIMARY KEY,
         status TEXT NOT NULL DEFAULT 'active'
           CHECK (status IN ('active', 'withdrawn')),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (hackathon_id, user_id),
-        FOREIGN KEY (hackathon_id) REFERENCES hackathons(id),
         FOREIGN KEY (user_id) REFERENCES users(id)
-      );
-
-      CREATE INDEX hackathon_enrollments_user_id
-        ON hackathon_enrollments(user_id);
+      ) WITHOUT ROWID;
 
       CREATE TABLE groups (
         id INTEGER PRIMARY KEY,
-        hackathon_id INTEGER NOT NULL,
         name TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (id, hackathon_id),
-        FOREIGN KEY (hackathon_id) REFERENCES hackathons(id)
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
-
-      CREATE INDEX groups_hackathon_id ON groups(hackathon_id);
 
       CREATE TABLE group_members (
         group_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL UNIQUE,
-        hackathon_id INTEGER NOT NULL,
         role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('lead', 'member')),
         joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (group_id, user_id),
-        FOREIGN KEY (group_id, hackathon_id) REFERENCES groups(id, hackathon_id),
-        FOREIGN KEY (hackathon_id, user_id)
-          REFERENCES hackathon_enrollments(hackathon_id, user_id)
+        FOREIGN KEY (group_id) REFERENCES groups(id),
+        FOREIGN KEY (user_id) REFERENCES hackathon_enrollments(user_id)
       );
 
       CREATE UNIQUE INDEX group_members_one_lead
@@ -69,15 +52,13 @@ module.exports = {
         id INTEGER PRIMARY KEY,
         group_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
-        hackathon_id INTEGER NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending'
           CHECK (status IN ('pending', 'approved', 'declined', 'cancelled')),
         decided_by INTEGER,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         decided_at TEXT,
-        FOREIGN KEY (group_id, hackathon_id) REFERENCES groups(id, hackathon_id),
-        FOREIGN KEY (hackathon_id, user_id)
-          REFERENCES hackathon_enrollments(hackathon_id, user_id),
+        FOREIGN KEY (group_id) REFERENCES groups(id),
+        FOREIGN KEY (user_id) REFERENCES hackathon_enrollments(user_id),
         FOREIGN KEY (decided_by) REFERENCES users(id),
         CHECK (
           (status = 'pending' AND decided_at IS NULL AND decided_by IS NULL)
@@ -92,8 +73,6 @@ module.exports = {
         ON group_join_requests(group_id, status);
       CREATE INDEX group_join_requests_user_status
         ON group_join_requests(user_id, status);
-      CREATE INDEX group_join_requests_enrollment
-        ON group_join_requests(hackathon_id, user_id);
       CREATE INDEX group_join_requests_decided_by ON group_join_requests(decided_by);
       `
     );
@@ -107,7 +86,6 @@ module.exports = {
       DROP TABLE group_members;
       DROP TABLE groups;
       DROP TABLE hackathon_enrollments;
-      DROP TABLE hackathons;
       DROP TABLE users;
       `
     );
