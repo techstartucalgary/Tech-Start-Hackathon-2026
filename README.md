@@ -165,6 +165,10 @@ The backend exposes a small API with a layered design:
 - `GET /api/health` → health check response
 - `GET /swagger-ui` → Swagger UI documentation site
 
+Google sign-in is available through the shared welcome/login/registration card.
+See [Google authentication setup](docs/auth/google-authentication.md) for OAuth
+environment variables, migrations, session behavior, and local testing.
+
 ### Example health flow
 
 ```text
@@ -203,13 +207,14 @@ The backend includes basic hardening middleware:
 - centralized error handling
 
 **Important limitations:**
-- Authentication and authorization are not yet implemented
+- Google authentication and persistent sessions are implemented; email/password
+  authentication and API authorization remain pending.
 - Input validation is not yet implemented
 - This is suitable for demos and learning, not production use
 - Architecture is not the same as security; good structure alone does not make an app secure
 
 To move toward production-grade security, you would need to add:
-- User authentication (e.g., JWT, OAuth)
+- Complete email/password authentication and API authorization
 - Input validation and sanitization
 - API authorization and access control
 - Secure secret management

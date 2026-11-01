@@ -62,7 +62,8 @@ const logger = {
 function httpLogger(req, res, next) {
   const start = process.hrtime();
   req.log = logger;
-  const path = req.originalUrl || req.url || '';
+  // OAuth callbacks contain authorization codes and state in their query.
+  const path = (req.originalUrl || req.url || '').split('?')[0];
   const isStaticAsset =
     /\.(css|js|png|jpg|jpeg|svg|ico|map)$/i.test(path) ||
     path.startsWith('/swagger-ui');
@@ -78,19 +79,13 @@ function httpLogger(req, res, next) {
     // Build a concise meta object. Headers are only included when LOG_HEADERS=true
     const meta = {
       method: req.method,
-      url: req.originalUrl || req.url,
+      url: path,
       statusCode: res.statusCode,
       durationMs,
     };
 
     if (process.env.LOG_HEADERS === 'true') {
-      const allowed = [
-        'host',
-        'user-agent',
-        'referer',
-        'x-forwarded-for',
-        'accept',
-      ];
+      const allowed = ['host', 'user-agent', 'x-forwarded-for', 'accept'];
       const safe = redactHeaders(req.headers || {});
       const small = {};
       allowed.forEach((k) => {
@@ -104,10 +99,7 @@ function httpLogger(req, res, next) {
       if (Object.keys(small).length) meta.headers = small;
     }
 
-    logger.info(
-      `${req.method} ${req.originalUrl || req.url} ${res.statusCode}`,
-      meta
-    );
+    logger.info(`${req.method} ${path} ${res.statusCode}`, meta);
   }
 
   res.on('finish', onFinish);
