@@ -1,10 +1,11 @@
 # Database Migrations
 
-This directory is reserved for database schema migrations.
+This directory contains versioned database schema migrations.
 
 ## Why migrations matter
 
 As your database schema evolves, migrations provide:
+
 - **Version control** for schema changes
 - **Rollback capability** for failed deployments
 - **Audit trail** of what changed and when
@@ -87,7 +88,9 @@ const migration = {
 
   down: async (db) => {
     await new Promise((resolve, reject) => {
-      db.run('DROP TABLE IF EXISTS users', (err) => (err ? reject(err) : resolve()));
+      db.run('DROP TABLE IF EXISTS users', (err) =>
+        err ? reject(err) : resolve()
+      );
     });
   },
 };
@@ -99,7 +102,7 @@ module.exports = migration;
 
 1. **One change per migration** - Keep migrations focused and testable
 2. **Write both up and down** - Always include rollback logic
-3. **Use transactions** - Wrap multiple statements when possible
+3. **Use the runner's transaction** - Each migration and its history record commit together. Do not open another transaction inside `up` or `down`.
 4. **Test rollbacks** - Not just the upgrade path
 5. **Version control migrations** - Commit them with your code
 6. **Never edit old migrations** - Create a new one to fix mistakes
@@ -107,3 +110,51 @@ module.exports = migration;
 ## Schema versioning
 
 The migration runner records applied migration names in a `schema_migrations` table so it can track what is already applied and which migration names are ready for rollback.
+
+## Hackathon database tables
+
+`20261101_000000_create_hackathon_tables.js` implements the six tables documented
+in [SCRUM-11 / PR #14](https://github.com/techstartucalgary/Tech-Start-Hackathon-2026/pull/14):
+`users`, `hackathons`, `hackathon_enrollments`, `groups`, `group_members`, and
+`group_join_requests`. Run `npm run migrate:up` before using these tables. App
+startup continues to initialize only the existing health-check table.
+
+The schema enforces required fields, allowed roles and statuses, case-insensitive
+ASCII email uniqueness, one group per user across all hackathons, at most one
+`lead` per group, and one pending request per user/group pair. Composite foreign
+keys require memberships and requests to refer to enrollment in the group's own
+hackathon. Completed requests need a decision time; approvals and declines also
+need a deciding user. Automatic cancellation may leave `decided_by` null.
+
+The application initializer and migration runner both enable SQLite foreign keys.
+Foreign keys use SQLite's default `NO ACTION`: deleting a referenced user,
+hackathon, enrollment, or group fails while dependent rows remain. Group deletion
+must explicitly remove its requests and memberships in the same transaction.
+
+Service-layer rules still need to enforce active enrollment, creation/transfer of
+exactly one lead, approval permissions, and cancellation of other pending requests
+when a user joins or creates a group. The unique lead index only prevents multiple
+leads; it cannot ensure that a group always has one. This migration does not
+implement authentication, API endpoints, or the permission middleware.
+
+### Isolated databases and validation
+
+Both the app and migration CLI accept `DATABASE_PATH`. Set it to an absolute
+SQLite file path to use a separate database; the default remains
+`backend/database.sqlite`. Tests use in-memory or temporary databases and do not
+touch the development database.
+
+Run the backend checks from `backend/`:
+
+```bash
+npm run lint
+npm exec -- eslint migrations/*.js scripts/migrate.js tests/
+npm exec -- prettier --check src/config/database.js scripts/migrate.js migrations/ tests/
+npm test -- --runInBand
+```
+
+Tests cover the enrollment/group relationships, duplicate and invalid data,
+lead transfer, request history, applying migrations twice, and recovery after
+failed upgrades or rollbacks. `migrate:down` and `migrate:reset` remove the affected
+tables and their data; they are intended for disposable development/test data or
+a deliberate rollback with backups.

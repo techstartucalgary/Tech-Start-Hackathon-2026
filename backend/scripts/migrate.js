@@ -5,22 +5,24 @@ const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
 const projectRoot = path.resolve(__dirname, '..');
-const databasePath = path.resolve(projectRoot, 'database.sqlite');
+const databasePath =
+  process.env.DATABASE_PATH || path.resolve(projectRoot, 'database.sqlite');
 const migrationsDir = path.resolve(projectRoot, 'migrations');
 const migrationTable = 'schema_migrations';
 
 const db = new sqlite3.Database(databasePath);
 
-const runSql = (sql, params = []) => new Promise((resolve, reject) => {
-  db.run(sql, params, function onRun(err) {
-    if (err) {
-      reject(err);
-      return;
-    }
+const runSql = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(err) {
+      if (err) {
+        reject(err);
+        return;
+      }
 
-    resolve(this);
+      resolve(this);
+    });
   });
-});
 
 const ensureMigrationTable = async () => {
   await runSql(`
@@ -86,17 +88,27 @@ const getAppliedMigrations = async () => {
 };
 
 const markMigrationApplied = async (name) => {
-  await runSql(
-    `INSERT INTO ${migrationTable} (name) VALUES (?)`,
-    [name]
-  );
+  await runSql(`INSERT INTO ${migrationTable} (name) VALUES (?)`, [name]);
 };
 
 const markMigrationReverted = async (name) => {
-  await runSql(
-    `DELETE FROM ${migrationTable} WHERE name = ?`,
-    [name]
-  );
+  await runSql(`DELETE FROM ${migrationTable} WHERE name = ?`, [name]);
+};
+
+const runMigration = async (migration, direction) => {
+  await runSql('BEGIN IMMEDIATE');
+  try {
+    await migration[direction](db);
+    if (direction === 'up') {
+      await markMigrationApplied(migration.name);
+    } else {
+      await markMigrationReverted(migration.name);
+    }
+    await runSql('COMMIT');
+  } catch (error) {
+    await runSql('ROLLBACK');
+    throw error;
+  }
 };
 
 const createMigrationTemplate = (rawName) => {
@@ -108,7 +120,9 @@ const createMigrationTemplate = (rawName) => {
     .toLowerCase();
 
   if (!cleanedName) {
-    throw new Error('A migration name is required. Example: create_users_table');
+    throw new Error(
+      'A migration name is required. Example: create_users_table'
+    );
   }
 
   const existingMigrations = loadMigrationModules();
@@ -194,8 +208,7 @@ const runPendingMigrations = async () => {
     }
 
     console.log(`Applying migration: ${migration.name}`);
-    await migration.up(db);
-    await markMigrationApplied(migration.name);
+    await runMigration(migration, 'up');
   }
 
   console.log('All pending migrations have been applied.');
@@ -205,7 +218,9 @@ const revertMigrations = async (targetName) => {
   await ensureMigrationTable();
 
   const migrationModules = loadMigrationModules();
-  const migrationMap = new Map(migrationModules.map((migration) => [migration.name, migration]));
+  const migrationMap = new Map(
+    migrationModules.map((migration) => [migration.name, migration])
+  );
   const applied = await getAppliedMigrations();
 
   if (applied.length === 0) {
@@ -241,8 +256,7 @@ const revertMigrations = async (targetName) => {
     }
 
     console.log(`Reverting migration: ${name}`);
-    await migration.down(db);
-    await markMigrationReverted(name);
+    await runMigration(migration, 'down');
   }
 
   console.log('Migration rollback completed.');
@@ -260,15 +274,16 @@ const resetMigrations = async () => {
 
   for (let index = applied.length - 1; index >= 0; index -= 1) {
     const migrationName = applied[index];
-    const migration = loadMigrationModules().find((item) => item.name === migrationName);
+    const migration = loadMigrationModules().find(
+      (item) => item.name === migrationName
+    );
 
     if (!migration) {
       throw new Error(`Migration definition not found for: ${migrationName}`);
     }
 
     console.log(`Reverting migration: ${migrationName}`);
-    await migration.down(db);
-    await markMigrationReverted(migrationName);
+    await runMigration(migration, 'down');
   }
 
   console.log('All migrations have been reverted.');
@@ -302,15 +317,19 @@ const argValue = process.argv.slice(3).join(' ');
 
 (async () => {
   try {
+    await runSql('PRAGMA foreign_keys = ON');
     switch (command) {
-      case 'create':
+      case 'create': {
         if (!argValue) {
-          throw new Error('Please provide a migration name, for example: npm run migrate:create -- create_users_table');
+          throw new Error(
+            'Please provide a migration name, for example: npm run migrate:create -- create_users_table'
+          );
         }
 
         const fileName = createMigrationTemplate(argValue);
         console.log(`Migration created: ${fileName}`);
         break;
+      }
 
       case 'up':
         await runPendingMigrations();
@@ -329,7 +348,9 @@ const argValue = process.argv.slice(3).join(' ');
         break;
 
       default:
-        console.log('Usage: node scripts/migrate.js <create|up|down|reset|status> [migration-name]');
+        console.log(
+          'Usage: node scripts/migrate.js <create|up|down|reset|status> [migration-name]'
+        );
         console.log('Examples:');
         console.log('  node scripts/migrate.js create create_users_table');
         console.log('  node scripts/migrate.js up');
