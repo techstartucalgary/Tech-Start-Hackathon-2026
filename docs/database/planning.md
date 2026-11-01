@@ -4,6 +4,10 @@
 relationships needed for registration, hackathon enrollment, group membership,
 and group permission checks.
 
+The application serves only the Tech Start Hackathon 2026 event. Each user can
+have one enrollment record, identified by `user_id`. A separate `hackathons`
+table and `hackathon_id` fields are not needed.
+
 The names and role rules follow [Luis's auth plan](https://github.com/techstartucalgary/Tech-Start-Hackathon-2026/blob/681edbc1d17d3f4337d89af3cac1629a52f01a05/docs/auth/ai-architecture-prompt.md).
 The ticket's **owner** is stored as **`lead`** in that plan. Joining uses a request
 that must be approved before the user becomes a `member`.
@@ -16,7 +20,10 @@ required unless marked nullable. Timestamps use UTC `TEXT` and default to
 
 ### `users`
 
-Stores the registered account and its global role.
+Stores the registered account and its global role (`user` or `organizer`).
+Group roles are separate: a `lead` creates the group, a `member` has been
+accepted, and a requester has a pending `group_join_requests` record until
+accepted. These group relationships do not replace the account's global role.
 
 | Field           | Type           | Key / purpose                                                        |
 | --------------- | -------------- | -------------------------------------------------------------------- |
@@ -30,88 +37,72 @@ Stores the registered account and its global role.
 Registering creates a user account. Enrollment and group membership are stored
 separately; neither is implied by registration.
 
-### `hackathons`
-
-Stores the event that users enroll in and groups belong to.
-
-| Field  | Type    | Key / purpose   |
-| ------ | ------- | --------------- |
-| `id`   | INTEGER | PK.             |
-| `name` | TEXT    | Hackathon name. |
-
 ### `hackathon_enrollments`
 
-Connects a registered user to a hackathon.
+Stores a registered user's enrollment in this hackathon.
 
-| Field          | Type    | Key / purpose                                  |
-| -------------- | ------- | ---------------------------------------------- |
-| `hackathon_id` | INTEGER | Part of composite PK; FK -> `hackathons.id`.   |
-| `user_id`      | INTEGER | Part of composite PK; FK -> `users.id`.        |
-| `status`       | TEXT    | `active` or `withdrawn`; defaults to `active`. |
-| `created_at`   | TEXT    | Enrollment time.                               |
+| Field        | Type    | Key / purpose                                  |
+| ------------ | ------- | ---------------------------------------------- |
+| `user_id`    | INTEGER | PK; FK -> `users.id`. Must be supplied.        |
+| `status`     | TEXT    | `active` or `withdrawn`; defaults to `active`. |
+| `created_at` | TEXT    | Enrollment time.                               |
 
-**PK:** `(hackathon_id, user_id)`. This prevents duplicate enrollment records for
-the same user and event. The backend requires an active enrollment before the
-user creates or joins a group in that hackathon.
+**PK:** `user_id`. This prevents duplicate enrollment records for the same user.
+Withdrawal and re-enrollment update the existing row's `status`. The backend
+requires an active enrollment before the user creates or joins a group.
 
 ### `groups`
 
-Stores each group and the hackathon it belongs to.
+Stores groups for this hackathon.
 
-| Field          | Type    | Key / purpose          |
-| -------------- | ------- | ---------------------- |
-| `id`           | INTEGER | PK.                    |
-| `hackathon_id` | INTEGER | FK -> `hackathons.id`. |
-| `name`         | TEXT    | Group name.            |
-| `created_at`   | TEXT    | Group creation time.   |
+| Field        | Type    | Key / purpose        |
+| ------------ | ------- | -------------------- |
+| `id`         | INTEGER | PK.                  |
+| `name`       | TEXT    | Group name.          |
+| `created_at` | TEXT    | Group creation time. |
 
-Add `UNIQUE(id, hackathon_id)` so memberships and requests can reference the group
-and its event together. Ownership is stored in `group_members.role`, avoiding a
-second ownership field that could disagree with the membership record.
+Ownership is stored in `group_members.role`, avoiding a second ownership field
+that could disagree with the membership record.
 
 ### `group_members`
 
 Stores accepted group membership and each user's role within the group.
 
-| Field          | Type    | Key / purpose                                                           |
-| -------------- | ------- | ----------------------------------------------------------------------- |
-| `group_id`     | INTEGER | Part of composite PK and group FK below.                                |
-| `user_id`      | INTEGER | Part of composite PK and enrollment FK below; also unique.              |
-| `hackathon_id` | INTEGER | Connects the membership to the group's event and the user's enrollment. |
-| `role`         | TEXT    | `lead` (owner) or `member`; defaults to `member`.                       |
-| `joined_at`    | TEXT    | Time membership was created.                                            |
+| Field       | Type    | Key / purpose                                              |
+| ----------- | ------- | ---------------------------------------------------------- |
+| `group_id`  | INTEGER | Part of composite PK and group FK below.                   |
+| `user_id`   | INTEGER | Part of composite PK and enrollment FK below; also unique. |
+| `role`      | TEXT    | `lead` (owner) or `member`; defaults to `member`.          |
+| `joined_at` | TEXT    | Time membership was created.                               |
 
 - **PK:** `(group_id, user_id)`.
-- **FK:** `(group_id, hackathon_id)` -> `groups(id, hackathon_id)`.
-- **FK:** `(hackathon_id, user_id)` ->
-  `hackathon_enrollments(hackathon_id, user_id)`, which links to `users`.
+- **FK:** `group_id` -> `groups.id`.
+- **FK:** `user_id` -> `hackathon_enrollments.user_id`, which links to `users`.
 - **Unique:** `user_id`, matching Luis's rule that a user belongs to at most one
   group across the application.
 - **Unique partial index:** `group_id WHERE role = 'lead'` prevents multiple
   owners in one group. The backend must also ensure every group has an owner;
   this index alone does not prevent a group with zero owners.
 
-The composite FKs ensure the group and enrollment refer to the same hackathon.
-The backend separately checks that the enrollment is active.
+The foreign keys require an existing group and an enrolled user. The backend
+separately checks that the enrollment is active.
 
 ### `group_join_requests`
 
 Supports Luis's approval flow. A pending requester is not yet a group member.
 
-| Field          | Type              | Key / purpose                                                                                                              |
-| -------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `id`           | INTEGER           | PK.                                                                                                                        |
-| `group_id`     | INTEGER           | Part of composite group FK below.                                                                                          |
-| `user_id`      | INTEGER           | Requesting user; part of composite enrollment FK below.                                                                    |
-| `hackathon_id` | INTEGER           | Connects the request to the group's event and the user's enrollment.                                                       |
-| `status`       | TEXT              | `pending`, `approved`, `declined`, or `cancelled`; defaults to `pending`.                                                  |
-| `decided_by`   | INTEGER, nullable | FK -> `users.id`; user who approved, declined, or cancelled the request. Null while pending or for automatic cancellation. |
-| `created_at`   | TEXT              | Request creation time.                                                                                                     |
-| `decided_at`   | TEXT, nullable    | Decision time; no default, null while pending.                                                                             |
+| Field        | Type              | Key / purpose                                                                                                              |
+| ------------ | ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `id`         | INTEGER           | PK.                                                                                                                        |
+| `group_id`   | INTEGER           | FK -> `groups.id`.                                                                                                         |
+| `user_id`    | INTEGER           | Requesting user; FK -> `hackathon_enrollments.user_id`.                                                                    |
+| `status`     | TEXT              | `pending`, `approved`, `declined`, or `cancelled`; defaults to `pending`.                                                  |
+| `decided_by` | INTEGER, nullable | FK -> `users.id`; user who approved, declined, or cancelled the request. Null while pending or for automatic cancellation. |
+| `created_at` | TEXT              | Request creation time.                                                                                                     |
+| `decided_at` | TEXT, nullable    | Decision time; no default, null while pending.                                                                             |
 
-- **FK:** `(group_id, hackathon_id)` -> `groups(id, hackathon_id)`.
-- **FK:** `(hackathon_id, user_id)` ->
-  `hackathon_enrollments(hackathon_id, user_id)`.
+- **FK:** `group_id` -> `groups.id`.
+- **FK:** `user_id` -> `hackathon_enrollments.user_id`.
 - **Unique partial index:** `(group_id, user_id) WHERE status = 'pending'`
   prevents duplicate pending requests by the same user to the same group.
 
@@ -122,9 +113,7 @@ Current membership is always read from `group_members`, not request history.
 
 ```mermaid
 erDiagram
-    users ||--o{ hackathon_enrollments : enrolls
-    hackathons ||--o{ hackathon_enrollments : has
-    hackathons ||--o{ groups : contains
+    users ||--o| hackathon_enrollments : enrolls
     groups ||--|{ group_members : has
     users ||--o| group_members : belongs_to
     hackathon_enrollments ||--o| group_members : qualifies
@@ -134,23 +123,23 @@ erDiagram
     users o|--o{ group_join_requests : decides
 ```
 
-- Users and hackathons have a many-to-many relationship through enrollments.
-- A hackathon has many groups; each group belongs to one hackathon.
+- A user has zero or one enrollment record for this hackathon.
+- All groups belong to this single event.
 - A group has one or more members, with exactly one owner (`lead`). Each user
   belongs to zero or one group under the current auth plan.
-- Membership and join requests require enrollment in the group's hackathon.
+- Membership and join requests require enrollment.
 - A group can receive many join requests. Each request belongs to one requesting
   user, with an optional reference to the user who decided it.
 
 ## Application flow
 
 1. **Register:** create a `users` row with global role `user`.
-2. **Enroll:** create an active `hackathon_enrollments` row connecting the user to
-   the selected hackathon.
+2. **Enroll:** create an active `hackathon_enrollments` row keyed by `user_id`.
+   If the user previously withdrew, reactivate their existing enrollment.
 3. **Create a group:** confirm active enrollment and no existing membership.
    Create the `groups` row and the creator's `group_members` row with role `lead`
    in one transaction. The creator is now the owner.
-4. **Join a group:** require active enrollment in the target group's hackathon,
+4. **Join a group:** require active enrollment,
    no existing membership, and no pending request to that group before creating
    a pending `group_join_requests` row. Only the target group's lead or an
    organizer with `group:members:manage:any` may approve a pending request.
