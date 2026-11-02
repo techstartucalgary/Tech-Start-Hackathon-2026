@@ -6,8 +6,8 @@ export default function LoginPage() {
     <div style={{
       display: 'flex',
       width: '100vw',
-      height: '100vh',
-      minHeight: '100vh',
+      height: 'var(--page-height)',
+      minHeight: 'var(--page-height)',
       margin: 0,
       padding: 0,
       boxSizing: 'border-box',
