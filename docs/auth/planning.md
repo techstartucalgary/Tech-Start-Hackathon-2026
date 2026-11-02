@@ -62,6 +62,7 @@ This plan adds auth to the architecture described in the README **without changi
 - **Sessions over JWTs:** sessions live in the database, and the browser holds a random token in an HttpOnly cookie. Signing out and role changes take effect immediately.
 - **Expiry:** sessions expire after 7 days unused, or 30 days at most.
 - **Same-origin calls:** the browser talks to the backend through a Next.js `/api` proxy. CORS uses an allowlist, plus an Origin check against CSRF.
+- **Linking Google to an existing account:** a matching email isn't enough. The person must also enter that account's password before the two are linked.
 - **Permissions, not roles:** the code checks permissions, so new roles can be added later without touching routes.
 - **One staff role:** `organizer`. There's no separate admin role.
 - **Staff overrides:** organizers act on other groups only through permissions ending in `:any`.
@@ -86,6 +87,7 @@ This plan adds auth to the architecture described in the README **without changi
 | Staff | Users with the `organizer` role. |
 | Session / `sid` | The server's record of who's signed in, and the cookie that points to it. |
 | Join request | A request to join a group: pending, approved, declined or cancelled. |
+| Link request | A short-lived, single-use record that holds a Google sign-in while the person confirms the existing account's password. |
 
 ## 3. Invariants · [§3](ai-architecture-prompt.md#3-invariants)
 
@@ -100,6 +102,7 @@ Always true:
 - **Identity and access:**
   - The acting user comes from the session.
   - Passwords and tokens are never stored or logged in plain text.
+  - A Google account is linked to an existing account only after the person proves they own both: Google sign-in **and** that account's password.
   - Only an organizer can change someone's role.
 - **Routes:**
   - Every route needs sign-in unless it's on the public list.
@@ -112,6 +115,7 @@ Always true:
 | `users` | **Every person**, however they sign in: email, password hash (empty for Google-only accounts), role |
 | `sessions` | Hashed token and expiry times |
 | `oauth_accounts` | A Google login linked to a person in `users` (by Google's user id) |
+| `oauth_link_requests` | A Google login waiting for the existing account's password (expires after 10 minutes, used once) |
 | `hackathon_enrollments` | Whether the user is enrolled |
 | `groups` | The group |
 | `group_members` | Who's in which group, as lead or member |
@@ -128,7 +132,8 @@ The full schema is a TODO.
 | `POST /api/auth/register` | Create an account (role `user`) and sign in |
 | `POST /api/auth/login` | Sign in with email and password |
 | `GET /api/auth/google` | Start "Continue with Google" |
-| `GET /api/auth/google/callback` | Google sends the user back here; the backend checks it and signs them in |
+| `GET /api/auth/google/callback` | Google sends the user back here; the backend checks it and signs them in (or asks for their password, below) |
+| `POST /api/auth/google/link` | Confirm the existing account's password, link Google to it and sign in |
 | `POST /api/auth/logout` | Sign out (always succeeds) |
 | `GET /api/auth/me` | The current user, or `null` |
 
@@ -137,7 +142,10 @@ The full schema is a TODO.
 - **Fresh session:** every sign-in creates a new session.
 - **Google sign-in:**
   - **Who it is:** the backend talks to Google directly and identifies the account by Google's user id, not just the email.
-  - **Existing accounts:** if the Google email is verified and matches an existing account, the two are linked instead of creating a duplicate.
+  - **Existing accounts:** if the Google email is verified and matches an existing account, the user is **not** signed in or linked yet. They're asked for that account's password first, so a matching email alone can't hand someone else the account.
+    - The pending link is kept on the server for 10 minutes and works once. The browser only holds a random token in a short-lived cookie.
+    - Five wrong passwords cancel it, and the user has to start again with Google.
+    - If the existing account has no password, it already belongs to a *different* Google account, so nothing is linked. The user is told to sign in with the Google account they first used, or to ask an organizer. No email is needed.
   - **New accounts:** otherwise a new account is created, with no password.
   - **Same session:** either way, the user ends up with the same kind of session as an email sign-in.
 
@@ -239,6 +247,7 @@ These are left for their own tickets:
 
 - join request details (messages, notifications, expiry)
 - Google Cloud setup and choosing a library
+- account-link follow-ups: emailing the owner when Google is linked (only if we add email later), and safe "Connect Google" from settings
 - group capacity
 - the full schema
 - backend conventions

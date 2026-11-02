@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Status** | Proposed. **Nothing in this file is implemented yet.** Every file, table, endpoint and middleware named here is planned. Check the code before importing anything. |
-| **Version** | 3.2 (see [Changelog](#14-changelog)) |
+| **Version** | 3.3 (see [Changelog](#14-changelog)) |
 | **Authority** | This file is the detailed source of truth for auth. [planning.md](planning.md) is the readable summary. **Any change must update both files in the same PR**, so AI tools never read an outdated plan. If they ever disagree, this file wins until the other is fixed. |
 | **Scope** | Covers the acceptance criteria of the *Plan Authentication & Authorization Architecture* ticket. Anything beyond that is listed as a **TODO** in [§12](#12-todos-outside-this-ticket). |
 
@@ -47,7 +47,8 @@ This spec adds authentication and authorization to the architecture in the READM
 │ groups               │
 │ group_members        │
 │ group_join_requests  │
-│ oauth_accounts      │
+│ oauth_accounts       │
+│ oauth_link_requests  │
 └──────────────────────┘
 ```
 
@@ -127,7 +128,7 @@ The README predates this design and is intentionally left unchanged. Where they 
 | D-20 | **Staff can compete.** Organizers can enroll and be in groups. Their `:any` overrides still apply. | DECIDED | Agreed by the team 2026-10-16. |
 | D-21 | All signed-in users can see every group and its members. | DECIDED | Agreed by the team 2026-10-16. This is why a missing group returns 404 before the membership check. |
 | D-22 | Google sign-in uses the **OAuth 2.0 authorization-code flow with OpenID Connect**, handled entirely by the backend. A Google account is identified by its Google user id (`sub`), never by email alone. | DECIDED | The backend verifies the token itself, so the browser never handles Google tokens. Emails can change; `sub` doesn't. |
-| D-23 | If a Google account's **verified** email matches an existing user, the Google account is **linked** to that user instead of creating a duplicate. Unverified emails are never linked. | DECIDED | Someone who registered with a password can later use "Continue with Google" and land in the same account. Requiring verification stops someone from claiming another person's account through an unverified email. |
+| D-23 | If a Google account's **verified** email matches an existing user, the Google account is linked to that user **only after the person proves they own both accounts**: a verified Google sign-in **and** that user's current password (§5.2). A matching email alone never links or signs anyone in. Unverified emails are never linked. | DECIDED | Someone who registered with a password can later use "Continue with Google" and land in the same account. Matching emails alone could hand the account to whoever controls a Google account with that address (review feedback, 2026-11-02), so the password is required too. |
 | D-24 | Users get into a group **only by requesting to join**. The group's **lead** approves or declines each request. There's no instant join and no invite link or code in the first build. | DECIDED | Agreed by the team 2026-10-18. Nobody ends up in a group without asking, and leads control who joins. |
 
 ---
@@ -147,6 +148,7 @@ The README predates this design and is intentionally left unchanged. Where they 
 | Session / `sid` | The server's record of a sign-in, and the cookie that points to it | JWT, token table |
 | Join request | A user's request to join a group (table `group_join_requests`): `pending`, `approved`, `declined` or `cancelled` | application, invite |
 | OAuth account | A linked Google login (table `oauth_accounts`). The person's account itself is always in `users`. | identity, `google_users`, `email_users` |
+| Link request | A short-lived, single-use record (table `oauth_link_requests`) that holds a verified Google `sub` while the person confirms the existing account's password (§5.2) | pending link, link token (in code) |
 | Permission | A string like `group:update`, or `group:update:any` for staff overrides | `canEdit`-style booleans |
 | `req.user` | The acting user, set from the session | `req.body.userId` |
 | `req.group` / `req.membership` | The target group, and the acting user's row in it (`null` if not a member) | — |
@@ -164,12 +166,13 @@ These must be true after every request.
 | INV-03 | Only enrolled users can be group members. |
 | INV-04 | Every group has exactly one `lead`. |
 | INV-05 | The acting user always comes from the session. |
-| INV-06 | Passwords, session tokens and Google tokens are never stored, logged or returned in plain text. |
+| INV-06 | Passwords, session tokens, link-request tokens and Google tokens are never stored, logged or returned in plain text. |
 | INV-07 | A user's role is only changed by someone holding `user:role:update`, never through registration or profile input. |
 | INV-08 | Every route requires sign-in unless it's on the public list (§8.1). |
 | INV-09 | Every authorization decision is made in the backend. |
 | INV-10 | Nobody becomes a group member without their own request being approved (or by creating the group). |
 | INV-11 | A user has at most one **pending** request per group, and no pending requests at all once they're in a group. |
+| INV-12 | A Google account is linked to an existing user only after the person proves control of **both**: a verified Google sign-in and that user's password (D-23). A matching email alone never links accounts or creates a session. |
 
 ---
 
@@ -182,6 +185,7 @@ Only the tables and columns auth depends on. **TODO:** full schema and migration
 | `users` | **Every person**, however they sign in. `id`, `email` (unique, case-insensitive), `password_hash` (**nullable**: Google-only users have none), `display_name`, `role` (`user` / `organizer`, default `user`) |
 | `sessions` | `id`, `user_id`, `token_hash` (unique), `expires_at` (sliding), `absolute_expires_at` (fixed) |
 | `oauth_accounts` | A Google login linked to a row in `users`: `user_id`, `provider` (`google`), `provider_user_id` (Google `sub`). Unique on (`provider`, `provider_user_id`). |
+| `oauth_link_requests` | A pending link waiting for the password (§5.2): `id`, `token_hash` (unique, SHA-256 like sessions), `user_id` (the existing account), `provider`, `provider_user_id`, `failed_attempts`, `expires_at` (**10 minutes**). Single-use: deleted when used, expired or failed too many times. |
 | `hackathon_enrollments` | `user_id`, `status` (`active` / `withdrawn`) |
 | `groups` | `id`, `name` |
 | `group_members` | `group_id`, `user_id`, `role` (`lead` / `member`). One row per user (INV-02), one lead per group (INV-04). |
@@ -201,7 +205,8 @@ Only the tables and columns auth depends on. **TODO:** full schema and migration
 | `POST /api/auth/register` `{ email, password, displayName }` | Yes | Creates the account with role `user`, then signs in. |
 | `POST /api/auth/login` `{ email, password }` | Yes | Checks the password and creates a new session. |
 | `GET /api/auth/google` | Yes | Starts "Continue with Google": redirects the browser to Google (§5.2). |
-| `GET /api/auth/google/callback` | Yes | Google redirects back here. The backend verifies the result, then signs the user in (§5.2). |
+| `GET /api/auth/google/callback` | Yes | Google redirects back here. The backend verifies the result, then signs the user in, or sends them to confirm their password if the email matches an existing account (§5.2). |
+| `POST /api/auth/google/link` `{ password }` | Yes | Confirms the existing account's password, links the pending Google account to it, then signs in (§5.2). |
 | `POST /api/auth/logout` | Yes | Deletes the current session and clears the cookie. Always succeeds. |
 | `GET /api/auth/me` | Yes (D-17) | Returns the current user, or `null`. |
 
@@ -244,13 +249,40 @@ Only the tables and columns auth depends on. **TODO:** full schema and migration
 Finding the user, in this order:
 
 1. **An `oauth_accounts` row** with this Google `sub` exists → sign in as that user.
-2. **A user with the same email** exists and Google says the email is **verified** → link the Google account to that user (add an `oauth_accounts` row), then sign in (D-23).
+2. **A user with the same email** exists and Google says the email is **verified** → **don't link and don't sign in yet.** Start a link request so the person can prove they own the existing account too (below, D-23).
 3. **Otherwise** → create a new user (role `user`, no password, display name from Google), add the `oauth_accounts` row, then sign in.
+
+**Linking to an existing account (step 2):**
+
+```text
+ Browser                                   Backend
+    │  GET /api/auth/google/callback          │
+    │ ──────────────────────────────────────► │ Google verified, email matches user U,
+    │                                         │ no oauth_accounts row for this sub
+    │                                         │ create oauth_link_requests row
+    │                                         │ (user U + Google sub, 10 min, hashed token)
+    │ ◄────────────────────────────────────── │ set oauth_link cookie, NO session,
+    │                                         │ redirect to "confirm your password" page
+    │  POST /api/auth/google/link {password}  │
+    │ ──────────────────────────────────────► │ find link request from cookie (unexpired)
+    │                                         │ check U's password
+    │                                         │ add oauth_accounts row, delete link request
+    │                                         │ create a new session (same as 5.1)
+    │ ◄────────────────────────────────────── │ clear oauth_link, set sid, redirect to app
+```
+
+- **No session before the password.** Until `POST /api/auth/google/link` succeeds, the person isn't signed in as the existing user and nothing is linked.
+- **The pending link lives on the server.** The Google `sub` and target user are stored in `oauth_link_requests`, never in a form field or URL the client could change. The browser only holds a random token in an `oauth_link` cookie (`HttpOnly`, `SameSite=Lax`, `Path=/api/auth/google`, `Secure` in production, 10-minute max age); the database stores its SHA-256 hash, the same as sessions (D-04).
+- **Single-use and short-lived.** The link request expires after 10 minutes, is deleted once used, and is deleted after **5 wrong passwords**, so the person has to start over with Google. A missing, expired or used link request fails with `401 LINK_REQUEST_EXPIRED`.
+- **Same password rules as sign-in.** `POST /api/auth/google/link` is rate-limited like login. A wrong password returns `401 INVALID_CREDENTIALS`.
+- **No password on the existing account.** If the existing user has no password, it was created by a *different* Google account with the same email. There's nothing this person can prove ownership with, so **nothing is linked**: the callback doesn't create a link request and fails with `409 ACCOUNT_LINK_UNAVAILABLE`. The sign-in page tells them to use the Google account they first signed up with, or to ask an organizer for help. This is expected to be rare, and no email is needed.
+- **Logged.** Successful links are logged at `info`, and failed link attempts at `warn`, with the user id and error `code` (§10.3).
 
 Rules:
 
 - **Verify everything.** The `state` value must match the one in the cookie; otherwise the callback is rejected. This is what stops CSRF on the OAuth flow. PKCE is used for the code exchange, and the ID token is verified on the backend.
-- **Unverified email.** If Google reports the email as unverified, don't link it to an existing account. Sign-in fails with `401 GOOGLE_EMAIL_UNVERIFIED`.
+- **Unverified email.** If Google reports the email as unverified, don't link it to an existing account or start a link request. Sign-in fails with `401 GOOGLE_EMAIL_UNVERIFIED`.
+- **Never link by email alone.** A matching email only ever *starts* a link request. The `oauth_accounts` row is written only by `POST /api/auth/google/link` after the password check (INV-12).
 - **Session only.** Google tokens are used once, during the callback, and are not stored. The user's session afterwards is the same `sid` session as an email + password sign-in.
 - **Config.** The client id, client secret and redirect URL come from environment variables. **TODO:** Google Cloud project setup and choosing a library (§12).
 
@@ -366,7 +398,7 @@ function can(user, permission, membership = null) {
 
 ### 8.1 Public routes (the complete list)
 
-`GET /api`, `GET /api/health`, `/swagger-ui`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/google`, `GET /api/auth/google/callback`, `POST /api/auth/logout`, `GET /api/auth/me`.
+`GET /api`, `GET /api/health`, `/swagger-ui`, `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/google`, `GET /api/auth/google/callback`, `POST /api/auth/google/link`, `POST /api/auth/logout`, `GET /api/auth/me`.
 
 **Everything else requires a signed-in user.** A new public route must be added to this list in the same PR.
 
@@ -460,11 +492,11 @@ Actions from **outside** a group (create a group, send a join request) can't use
 
 | Order | Status | Meaning | Example `code` |
 |---|---|---|---|
-| 1 | `401` | Not signed in, session expired, wrong credentials, or a failed Google sign-in | `AUTH_REQUIRED`, `SESSION_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_AUTH_FAILED`, `GOOGLE_EMAIL_UNVERIFIED` |
+| 1 | `401` | Not signed in, session expired, wrong credentials, or a failed Google sign-in | `AUTH_REQUIRED`, `SESSION_EXPIRED`, `INVALID_CREDENTIALS`, `GOOGLE_AUTH_FAILED`, `GOOGLE_EMAIL_UNVERIFIED`, `LINK_REQUEST_EXPIRED` |
 | 2 | `404` | The target doesn't exist | `GROUP_NOT_FOUND` |
 | 3 | `403` | Signed in, but not allowed | `NOT_GROUP_MEMBER`, `FORBIDDEN`, `NOT_ENROLLED`, `CSRF_ORIGIN_REJECTED` |
 | 4 | `400` | Invalid input | `VALIDATION_ERROR` |
-| 5 | `409` | Allowed, but blocked by the current state | `ALREADY_IN_GROUP`, `REQUEST_ALREADY_PENDING`, `LEAD_MUST_TRANSFER` |
+| 5 | `409` | Allowed, but blocked by the current state | `ALREADY_IN_GROUP`, `REQUEST_ALREADY_PENDING`, `LEAD_MUST_TRANSFER`, `ACCOUNT_LINK_UNAVAILABLE` |
 | — | `429` | Too many attempts | `RATE_LIMITED` |
 | — | `500` | Unexpected error, no details exposed | `INTERNAL_ERROR` |
 
@@ -516,6 +548,7 @@ These came up during design but aren't part of this ticket's acceptance criteria
 | **Complete error-code list** | Expand §10.1 as the features are built. |
 | **Rate-limit values** | Exact limits for login, register and join requests. |
 | **Google setup** | Create the Google Cloud OAuth client, set the redirect URLs for local and production, and pick the OAuth/OIDC library. |
+| **Account-link follow-ups** | If the project ever adds email sending, notify the account owner whenever a Google account is linked. If "Connect Google" is ever added to account settings, it must require a recent sign-in and refuse a Google `sub` already linked to another user. |
 | **Frontend auth wiring** | The fetch helper, the auth context, connecting the login/register card, and the `/api` rewrite config. |
 | **First organizer** | A seed script that makes the first `organizer`, since only organizers can change roles. |
 | **Implementation tickets** | Break the build into tickets (sessions → permissions → enrollment → groups → frontend → tests). |
@@ -538,6 +571,7 @@ There are no open questions right now. Both earlier ones were answered on 2026-1
 
 | Version | Date | Change |
 |---|---|---|
+| 3.3 | 2026-11-02 | Review feedback: a matching verified email no longer links a Google account on its own. The person must also confirm the existing account's password through a short-lived, single-use link request (D-23, INV-12, §5.2). Added the `oauth_link_requests` table, `POST /api/auth/google/link`, the `oauth_link` cookie and the `LINK_REQUEST_EXPIRED` and `ACCOUNT_LINK_UNAVAILABLE` codes. Accounts with no password are never linked to a different Google account; the person uses their original Google account or asks an organizer. No email provider is needed. |
 | 3.2 | 2026-10-29 | Review feedback: renamed `architecture.md` → `ai-architecture-prompt.md` and `overview.md` → `planning.md`, which must be updated together. Merged `admin` into `organizer`. Renamed group role `owner` → `lead` and added the **requester** term. Renamed `user_identities` → `oauth_accounts`. Linked rejection logging to the existing logger. |
 | 3.1 | 2026-10-18 | Renamed `spec.md` → `architecture.md`. Added Google sign-in (D-01, D-22, D-23, §5.2) and join-by-request with owner approval (D-24, §8). New tables `oauth_accounts` and `group_join_requests`. `group:join` replaced by `group:request`. Both open questions resolved. |
 | 3.0 | 2026-10-16 | Cut back to this ticket's acceptance criteria. Group-joining design, the full schema, implementation conventions, the full error catalog, pitfalls and implementation tickets moved to TODOs (§12). Renumbered sections. Decision IDs D-01 to D-16 kept their meaning; D-17 onward were renumbered. |
