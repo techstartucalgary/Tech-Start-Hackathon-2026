@@ -1,5 +1,5 @@
-import LoginRegisterCard from '../../components/welcome-page/login-register-card';
-import ParticleBackground from '../../components/welcome-page/particle-background';
+import LoginCard from '../../components/login-card/login-card';
+import ParticleBackground from '../../components/animations/particle-background';
 
 export default function WelcomePage() {
   return (
@@ -8,7 +8,7 @@ export default function WelcomePage() {
       flexDirection: 'row',
       flexWrap: 'wrap',
       width: '100vw',
-      minHeight: '100vh',
+      minHeight: 'var(--page-height)',
       margin: 0,
       padding: 0,
       overflow: 'auto',
@@ -32,7 +32,7 @@ export default function WelcomePage() {
         flex: '1 1 50%',
         minWidth: '320px',
         height: '100%',
-        minHeight: '100vh',
+        minHeight: 'var(--page-height)',
         background: 'transparent',
         display: 'flex',
         alignItems: 'center',
@@ -87,7 +87,7 @@ export default function WelcomePage() {
       <div style={{
         flex: '1 1 50%',
         minWidth: '320px',
-        minHeight: '100vh',
+        minHeight: 'var(--page-height)',
         background: 'transparent',
         display: 'flex',
         alignItems: 'center',
@@ -97,7 +97,7 @@ export default function WelcomePage() {
         position: 'relative',
         zIndex: 1
       }}>
-        <LoginRegisterCard />
+        <LoginCard />
       </div>
     </div>
   );

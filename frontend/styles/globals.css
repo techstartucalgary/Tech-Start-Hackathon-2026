@@ -52,6 +52,24 @@
 
   --line-height-tight: 0.9;
   --line-height-body: 1.35;
+
+  /* Layout */
+  --header-height: 72px;
+  --header-logo-height: 44px;
+  --header-padding-x: clamp(24px, 4vw, 58px);
+  --page-height: calc(100vh - var(--header-height));
+}
+
+@media (max-width: 600px) {
+  :root {
+    --header-height: 60px;
+    --header-logo-height: 36px;
+    --header-padding-x: 16px;
+  }
+}
+
+.page-content {
+  padding-top: var(--header-height);
 }
 
 html,

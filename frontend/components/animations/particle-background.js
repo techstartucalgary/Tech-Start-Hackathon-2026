@@ -118,9 +118,9 @@ export default function ParticleBackground() {
 
   return (
     <>
-      <canvas ref={canvasRef} className="welcome-particle-background" />
+      <canvas ref={canvasRef} className="particle-background" />
       <style jsx>{`
-        .welcome-particle-background {
+        .particle-background {
           position: absolute;
           inset: 0;
           width: 100%;
