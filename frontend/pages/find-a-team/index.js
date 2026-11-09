@@ -1,17 +1,12 @@
-export default function FindATeamPage() {
+import Head from 'next/head';
+
+export default function FindAGroupPage() {
   return (
-    <div style={{
-      display: 'flex',
-      width: '100vw',
-      minHeight: '100vh',
-      margin: 0,
-      padding: 0,
-      boxSizing: 'border-box',
-      fontFamily: 'var(--font-family-primary)',
-      background: 'var(--color-primary-dark-background)',
-      alignItems: 'center',
-      justifyContent: 'center'
-    }}>
-    </div>
+    <>
+      <Head>
+        <title>Find a team | Tech Start</title>
+      </Head>
+      <h1>Find a team</h1>
+    </>
   );
 }
