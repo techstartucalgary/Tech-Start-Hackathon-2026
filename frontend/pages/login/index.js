@@ -6,7 +6,7 @@ export default function LoginPage() {
     <div style={{
       display: 'flex',
       width: '100%',
-      minHeight: '100vh',
+      minHeight: 'var(--page-height)',
       margin: 0,
       padding: 0,
       boxSizing: 'border-box',
@@ -26,7 +26,7 @@ export default function LoginPage() {
         alignItems: 'center',
         justifyContent: 'center',
         width: '100%',
-        minHeight: '100vh',
+        minHeight: 'var(--page-height)',
         padding: 'clamp(24px, 4vw, 48px)',
         boxSizing: 'border-box'
       }}>
