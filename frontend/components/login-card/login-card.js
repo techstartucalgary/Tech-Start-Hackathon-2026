@@ -1,7 +1,6 @@
 import { useId } from 'react';
 import Link from 'next/link';
 
-// Design: https://www.figma.com/design/NsAFWkz6tAjDKgAce2XTQL/Tech-Start-Hackathon-2026?node-id=3-17798
 export default function LoginCard() {
   const id = useId();
 
@@ -14,7 +13,6 @@ export default function LoginCard() {
         </p>
       </div>
 
-      {/* SCRUM-8 is display-only; authentication is handled in later tickets. */}
       <button className="google-button" type="button" disabled>
         {/* Official asset: https://developers.google.com/identity/branding-guidelines */}
         <img src="/images/google-g.png" width="18" height="18" alt="" />
