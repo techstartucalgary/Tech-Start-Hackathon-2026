@@ -1,3 +1,6 @@
+import TeamInfoCard from '../../components/team-info-card/team-info-card';
+import { mockTeam } from '../../components/team-info-card/mock-team';
+
 export default function DashboardPage() {
   return (
     <div style={{
@@ -10,6 +13,9 @@ export default function DashboardPage() {
       fontFamily: 'var(--font-family-primary)',
       background: 'var(--color-primary-dark-background)'
     }}>
+      <div style={{ flex: 1, maxWidth: '720px', padding: '40px', boxSizing: 'border-box' }}>
+        <TeamInfoCard team={mockTeam} />
+      </div>
     </div>
   );
 }
