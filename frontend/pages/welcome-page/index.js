@@ -7,7 +7,7 @@ export default function WelcomePage() {
       display: 'flex',
       flexDirection: 'row',
       flexWrap: 'wrap',
-      width: '100vw',
+      width: '100%',
       minHeight: 'var(--page-height)',
       margin: 0,
       padding: 0,
@@ -30,7 +30,7 @@ export default function WelcomePage() {
 
       <div style={{
         flex: '1 1 50%',
-        minWidth: '320px',
+        minWidth: 'min(320px, 100%)',
         height: '100%',
         minHeight: 'var(--page-height)',
         background: 'transparent',
@@ -86,7 +86,7 @@ export default function WelcomePage() {
 
       <div style={{
         flex: '1 1 50%',
-        minWidth: '320px',
+        minWidth: 'min(320px, 100%)',
         minHeight: 'var(--page-height)',
         background: 'transparent',
         display: 'flex',
