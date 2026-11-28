@@ -1,4 +1,5 @@
-export default function Card({ children, style }) {     // children is whatever you put between <Card> and </Card>, style lets a specific card override or add styling!
+// children is whatever you put between <Card> and </Card>, style lets a specific card override or add styling!
+export default function Card({ children, style }) {    
   return (
     <div
       style={{
