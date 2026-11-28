@@ -25,6 +25,7 @@
   --color-radial-overlay-end: rgba(41, 41, 41, 0.5);
   --color-particle-effect: #17EFC8;
   --color-white-soft: rgba(255, 255, 255, 0.06);
+  --color-danger: #FF6B6B; /* destructive actions, e.g. Delete buttons and form errors */
 
   /* Gradient Colors */
   --gradient-turquoise: linear-gradient(90deg, #70F0E8 0%, #8BFFA5 100%);
@@ -49,6 +50,12 @@
   --text-section-size: clamp(2.1rem, 3.2vw, 4rem);
   --text-body-size: clamp(0.95rem, 1.5vw, 1.55rem);
   --text-label-size: 0.8rem;
+
+  /* Card labels: shared text sizes for every dashboard card (TeamInfoCard, ScheduleCard, ...).
+     Use these instead of hard-coded px so all card headings and text stay the same size. */
+  --text-card-title-size: 1.25rem;      /* main card heading, e.g. "Schedule", team name */
+  --text-card-subtitle-size: 0.8125rem; /* muted line under a heading, e.g. time zone, dates */
+  --text-card-item-title-size: 1rem;    /* heading of a row inside a card, e.g. "Opening Ceremony" */
 
   --line-height-tight: 0.9;
   --line-height-body: 1.35;
