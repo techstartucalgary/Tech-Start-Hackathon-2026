@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
+import Card from '../card/card';
 
 const AVATAR_COLORS = [
   'var(--color-turquoise-blue)',
@@ -16,15 +17,6 @@ function getInitials(fullName) {
     .join('')
     .toUpperCase();
 }
-
-const cardStyle = {
-  boxSizing: 'border-box',
-  width: '100%',
-  padding: '28px',
-  borderRadius: '24px',
-  background: 'var(--gradient-dark-background)',
-  border: '1px solid var(--color-white-soft)',
-};
 
 const buttonStyle = {
   display: 'inline-flex',
@@ -45,19 +37,19 @@ export default function TeamInfoCard({ team }) {
   // Not in a team
   if (!team) {
     return (
-      <div style={cardStyle}>
+      <Card style={{ padding: '28px' }}>
         <p style={{ marginBottom: '16px' }}>Join a team to view team information</p>
         <Link href="/find-a-team" style={buttonStyle}>
           Find a Team
         </Link>
-      </div>
+      </Card>
     );
   }
 
   const count = team.members.length;
 
   return (
-    <div style={cardStyle}>
+    <Card style={{ padding: '28px' }}>
       <div
         style={{
           display: 'flex',
@@ -149,6 +141,6 @@ export default function TeamInfoCard({ team }) {
           {count} {count === 1 ? 'member' : 'members'}
         </span>
       </div>
-    </div>
+    </Card>
   );
 }
