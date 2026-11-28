@@ -1,5 +1,7 @@
 import TeamInfoCard from '../../components/team-info-card/team-info-card';
 import { mockTeam } from '../../components/team-info-card/mock-team';
+import ScheduleCard from '../../components/schedule-card/schedule-card';
+import { mockSchedule } from '../../components/schedule-card/mock-schedule';
 
 export default function DashboardPage() {
   return (
@@ -13,8 +15,19 @@ export default function DashboardPage() {
       fontFamily: 'var(--font-family-primary)',
       background: 'var(--color-primary-dark-background)'
     }}>
-      <div style={{ flex: 1, maxWidth: '720px', padding: '40px', boxSizing: 'border-box' }}>
+      <div
+        style={{
+          flex: 1,
+          maxWidth: '720px',
+          padding: '40px',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '24px',
+        }}
+      >
         <TeamInfoCard team={mockTeam} />
+        <ScheduleCard timeZone={mockSchedule.timeZone} events={mockSchedule.events} />
       </div>
     </div>
   );

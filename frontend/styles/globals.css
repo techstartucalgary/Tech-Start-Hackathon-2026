@@ -50,6 +50,12 @@
   --text-body-size: clamp(0.95rem, 1.5vw, 1.55rem);
   --text-label-size: 0.8rem;
 
+  /* Card labels: shared text sizes for every dashboard card (TeamInfoCard, ScheduleCard, ...).
+     Use these instead of hard-coded px so all card headings and text stay the same size. */
+  --text-card-title-size: 1.25rem;      /* main card heading, e.g. "Schedule", team name */
+  --text-card-subtitle-size: 0.8125rem; /* muted line under a heading, e.g. time zone, dates */
+  --text-card-item-title-size: 1rem;    /* heading of a row inside a card, e.g. "Opening Ceremony" */
+
   --line-height-tight: 0.9;
   --line-height-body: 1.35;
 

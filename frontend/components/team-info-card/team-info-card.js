@@ -29,7 +29,10 @@ const buttonStyle = {
   textDecoration: 'none',
 };
 
-const mutedText = { color: 'rgba(255, 255, 255, 0.6)', fontSize: '14px' };
+const mutedText = {
+  color: 'rgba(255, 255, 255, 0.6)',
+  fontSize: 'var(--text-card-subtitle-size)',
+};
 
 export default function TeamInfoCard({ team }) {
   const [activeId, setActiveId] = useState(null);
@@ -60,7 +63,12 @@ export default function TeamInfoCard({ team }) {
         }}
       >
         <div>
-          <h2 style={{ fontSize: '28px', fontWeight: 'var(--font-weight-bold)' }}>
+          <h2
+            style={{
+              fontSize: 'var(--text-card-title-size)',
+              fontWeight: 'var(--font-weight-bold)',
+            }}
+          >
             {team.name}
           </h2>
           {team.tagline && (
