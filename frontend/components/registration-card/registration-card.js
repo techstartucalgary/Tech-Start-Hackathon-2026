@@ -107,7 +107,6 @@ export default function RegistrationCard() {
           justifyContent: 'center',
           gap: '8px',
           width: '100%',
-          maxWidth: '370px',
           marginTop: '20px',
           padding: '12px',
           borderRadius: '10px',
